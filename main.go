@@ -6,6 +6,8 @@ import (
 	"flag"
   "os"
   "fmt"
+  "os/signal"
+  "syscall"
 )
 
 // configuration
@@ -45,5 +47,19 @@ func main() {
   }
 
   // handle signals
-	
+  // Set up channel on which to send signal notifications.
+  // We must use a buffered channel or risk missing the signal
+  // if we're not ready to receive when the signal is sent.
+  cSignal := make(chan os.Signal, 1)
+  signal.Notify(cSignal, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR2, syscall.SIGINT)
+
+  // Block until a signal is received.
+  for s := range cSignal {
+    fmt.Println("Got signal:", s)
+    switch (s) {
+      case syscall.SIGHUP, syscall.SIGUSR2:
+      case syscall.SIGTERM, syscall.SIGINT:
+    }
+  }
+  os.Exit(3)
 }
