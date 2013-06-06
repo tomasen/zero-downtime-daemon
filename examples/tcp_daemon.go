@@ -13,7 +13,7 @@ func handleTCPConn(*net.Conn) {
 
 func main() {
   gozd.Daemonize()
-  gozd.HandleTCPConnection()
+  gozd.HandleTCPConnection(handleTCPConn)
   
   return 0
 }
