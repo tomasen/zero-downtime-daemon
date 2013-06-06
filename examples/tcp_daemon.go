@@ -4,16 +4,16 @@ package main
 
 import (
 	"../"
-
+  "net"
 )
 
-func handleTCPConn(*net.Conn) {
+func serveTCP(*net.Conn) {
   
 }
 
 func main() {
   gozd.Daemonize()
-  gozd.HandleTCPConnection(handleTCPConn)
+  gozd.HandleTCPFunc(serveTCP)
   
-  return 0
+  return
 }

@@ -27,11 +27,6 @@ var (
 	 optHelp= flag.Bool("h",false,"this help")
 )
 
-type TCPHandler interface {
-  ServeTCP(*net.Conn)
-}
-
-
 func parseConfigFile(filePath string) bool {
 	return true
 }
@@ -130,11 +125,12 @@ func daemon(nochdir, noclose int) int {
   return 0
 }
   
-func HandleTCPConnection(handler TCPHandler) {
+   
+func HandleTCPFunc(handler func(*net.Conn)) {
   
 }
 
-func HandleHTTPRequest(pattern string, handler http.Handler) {
+func HandleHTTPFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
   
 }
 
