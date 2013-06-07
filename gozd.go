@@ -251,6 +251,8 @@ func Daemonize() {
       os.Exit(0)
   }
 
+  // start listen
+
   // handle signals
   // Set up channel on which to send signal notifications.
   // We must use a buffered channel or risk missing the signal
@@ -267,7 +269,9 @@ func signalHandler(cSignal chan os.Signal) {
     switch (s) {
       case syscall.SIGHUP, syscall.SIGUSR2:
         // upgrade, reopen
+        // using exec.Command() to start a new instance
       case syscall.SIGTERM, syscall.SIGINT:
+        // wait all clients disconnect
         // quit
         os.Exit(0)
     }
