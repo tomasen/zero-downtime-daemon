@@ -13,7 +13,9 @@ func serveTCP(*net.Conn) {
 
 func main() {
   gozd.Daemonize()
-  gozd.HandleTCPFunc(serveTCP)
+  for {
+    // your program's main logic routine
+  }
   
   return
 }

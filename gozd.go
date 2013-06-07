@@ -6,7 +6,7 @@ package gozd
 import (
   "net"
   "net/http"
-	"flag"
+  "flag"
   "os"
   "fmt"
   "io"
@@ -22,17 +22,17 @@ import (
 
 // configuration
 var (
-   optSendSignal= flag.String("s","","send signal to a master process: stop, quit, reopen, reload")
-   optConfigFile= flag.String("c","","set configuration file" )
-	 optHelp= flag.Bool("h",false,"this help")
+  optSendSignal= flag.String("s", "", "Send signal to a master process: <stop, quit, reopen, reload>.")
+  optConfigFile= flag.String("c", "", "Set configuration file path." )
+  optHelp= flag.Bool("h", false, "This help")
 )
 
 func parseConfigFile(filePath string) bool {
-	return true
+  return true
 }
 
 func usage() {
-  fmt.Println("[command] -conf=[config file]")
+  fmt.Println("[command] -conf = [config file]")
   flag.PrintDefaults()
 }
 
@@ -48,6 +48,7 @@ func writeStringToFile (filepath string, contents string) error {
 func getPidByConf (confPath string, prefix string) (int, error) {
   
   confPath,err := filepath.Abs(confPath)
+  fmt.Println("Confpath: " + confPath)
   if (err != nil) {
     return 0, err
   }
@@ -57,6 +58,8 @@ func getPidByConf (confPath string, prefix string) (int, error) {
   pidFilepath := filepath.Join(os.TempDir(), fmt.Sprintf("%v_%x.pid", prefix, hashSha1.Sum(nil)))
   
   pidString, err := readStringFromFile(pidFilepath)
+  fmt.Println("Filepath: " + pidFilepath)
+  fmt.Println("PID string: "+ pidString)
   if (err != nil) {
     return 0, err
   }
@@ -138,8 +141,11 @@ func HandleFCGIRequest(pattern string, handler http.Handler) {
   
 }
 
-func Daemonize() error {
-  
+func Daemonize() {
+  go daemonRoutine()
+}
+
+func daemonRoutine() {
   // parse arguments
   flag.Parse()
 
@@ -147,7 +153,6 @@ func Daemonize() error {
   if (!parseConfigFile(*optConfigFile)) {
     usage()
     os.Exit(1)
-    return nil
   }
 
   // find master process id by conf
@@ -202,5 +207,4 @@ func Daemonize() error {
     }
   }
   
-  return nil
 }
