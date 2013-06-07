@@ -29,10 +29,16 @@ Once you build your program based on gozd, you can use following command line ar
 ##Daemon Configuration
 ```
   [Group0]
-  mode     [tcp|http|fcgi]
+  mode     [tcp|http|https|fcgi]
   listen   [ip|port|unix socket]
 
   [Group1]
-  mode     [tcp|http|fcgi]
+  mode     [tcp|http|https|fcgi]
   listen   [ip|port|unix socket]
+  
+  [Group2]
+  mode     [tcp|http|https|fcgi]
+  listen   [ip|port|unix socket]
+  key      <path of ssl key file>
+  cert     <path of ssl cert file>
 ```
