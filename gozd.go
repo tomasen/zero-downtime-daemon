@@ -142,10 +142,6 @@ func HandleFCGIRequest(pattern string, handler http.Handler) {
 }
 
 func Daemonize() {
-  go daemonRoutine()
-}
-
-func daemonRoutine() {
   // parse arguments
   flag.Parse()
 
@@ -195,6 +191,10 @@ func daemonRoutine() {
   cSignal := make(chan os.Signal, 1)
   signal.Notify(cSignal, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR2, syscall.SIGINT)
 
+  go daemonRoutine(cSignal)
+}
+
+func daemonRoutine(cSignal chan os.Signal) {
   // Block until a signal is received.
   for s := range cSignal {
     fmt.Println("Got signal:", s)
