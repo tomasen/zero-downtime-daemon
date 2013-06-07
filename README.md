@@ -19,11 +19,12 @@ There are sample TCP/HTTP/FCGI programs in examples
 ##Daemon Usage
 
 Once you build your program based on gozd, you can use following command line to start the daemon and other operations.
-
+```
   -s send signal to a master process: stop, quit, reopen, reload
   -c set configuration file
-  
-kill -HUP <pid>  send signal to restart daemon's latest binary without break current connections and services.
+```
+
+> kill -HUP <pid>  send signal to restart daemon's latest binary, without break current connections and services.
 
 ##Daemon Configuration
 ```
