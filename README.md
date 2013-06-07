@@ -18,7 +18,7 @@ There are sample TCP/HTTP/FCGI programs in examples
 
 ##Daemon Usage
 
-Once you build your program based on gozd, you can use following command line to start the daemon and other operations.
+Once you build your program based on gozd, you can use following command line arguments to start the daemon and other operations.
 ```
   -s send signal to a master process: stop, quit, reopen, reload
   -c set configuration file
