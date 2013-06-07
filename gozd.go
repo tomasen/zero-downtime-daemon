@@ -5,7 +5,7 @@ package gozd
 
 import (
   "net"
-  "net/http"
+  //"net/http"
   "flag"
   "os"
   "fmt"
@@ -19,6 +19,9 @@ import (
   "runtime"
   "log"
   "strings"
+  "time"
+  "container/list"
+  "sync"
 )
 
 type configGroup struct {
@@ -27,13 +30,60 @@ type configGroup struct {
   listen string // ip address or socket
 }
 
+type GOZDCounter struct {
+  mutex sync.Mutex
+  c int
+}
+
+type GOZDConn struct {
+  element *list.Element
+  net.Conn
+}
+
 // configuration
 var (
   optSendSignal= flag.String("s", "", "Send signal to a master process: <stop, quit, reopen, reload>.")
   optConfigFile= flag.String("c", "", "Set configuration file path." )
   optHelp= flag.Bool("h", false, "This help")
   optGroups= []configGroup{}
+  Listeners = make(map[string]net.Listener) // caller's net.Listener
+  OpenedConns = list.New() // FDs opened by callers
 )
+
+const (
+  TCP_REQUEST_MAX_BYTES = 2 * 1024 // 2KB
+  TCP_CONNECTION_TIMEOUT = 2 * time.Minute
+)
+
+type GOZDListener struct { // used for caller, instead of default net.Listener
+  net.Listener
+  stopped bool
+  connCount GOZDCounter
+  // TODO: Should provide a channel for caller to close listeners
+}
+
+func newListener(l net.Listener, name string) (listener *GOZDListener) {
+  listener = &GOZDListener{Listener: l}
+  return
+}
+
+func (listener *GOZDListener) Accept() (conn net.Conn, err error) {
+  conn, err = listener.Listener.Accept()
+  if err != nil {
+    return
+  }
+
+  // Wrap the returned connection, so that we can observe when
+  // it is closed.
+  GOZDconn := GOZDConn{Conn: conn}
+  GOZDconn.element = OpenedConns.PushBack(GOZDconn)
+  return
+}
+
+func (conn GOZDConn) Close() error {
+  OpenedConns.Remove(conn.element)
+  return conn.Conn.Close()
+}
 
 func parseConfigFile(filePath string) bool {
   configString, err := readStringFromFile(filePath)
@@ -89,10 +139,6 @@ func extractParam(raw string) string {
     return ""
   } else {
     resultByte := []byte(raw)
-    result :=resultByte[idxBegin:idxEnd]
-
-    str := string(result)
-    fmt.Println(str)
     return string(resultByte[idxBegin+1:idxEnd])
   }
 }
@@ -194,17 +240,55 @@ func daemon(nochdir, noclose int) int {
   return 0
 }
   
-   
-func HandleTCPFunc(handler func(*net.Conn)) {
+// These functions are used to handle daemon control commands & dispatch, not for outsiders
+func commandDispatcherTCP(conn net.Conn) {
+
+  conn.SetReadDeadline(time.Now().Add(TCP_CONNECTION_TIMEOUT))
+  request := make([]byte, TCP_REQUEST_MAX_BYTES)
+  defer conn.Close()
+  
+  for {
+    read_len, err := conn.Read(request)
+    if err != nil {
+      fmt.Println(err.Error())
+      break
+    }
+
+    if read_len == 0 {
+      break
+    }
+
+    if strings.Contains(string(request), "DISCONNECT") {
+      break // client disconnected
+    }
+
+    // TODO: Parse & Dispatch request
+  }
+}
+
+// TODO
+/*func commandDispatcherHTTP(pattern string, handler func(http.ResponseWriter, *http.Request)) {
   
 }
 
-func HandleHTTPFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
+func commandDispatcherFCGI(pattern string, handler http.Handler) {
   
-}
+}*/
 
-func HandleFCGIRequest(pattern string, handler http.Handler) {
-  
+func tcpHandler(l net.Listener) {
+  for {
+    // Wait for a connection.
+    conn, err := l.Accept()
+    if err != nil {
+      log.Fatal(err)
+    }
+    // Handle the connection in a new goroutine.
+    // The loop then returns to accepting, so that
+    // multiple connections may be served concurrently.
+    go commandDispatcherTCP(conn)
+
+    runtime.Gosched()
+  }
 }
 
 func Daemonize() {
@@ -239,6 +323,9 @@ func Daemonize() {
     
     case "start","":
       // start daemon
+      if daemon(0, 0) != 0 {
+        os.Exit(1)
+      }
     case "reopen","reload":
       if (pid != 0) {
         p,err := os.FindProcess(pid)
@@ -246,12 +333,32 @@ func Daemonize() {
           p.Signal(syscall.SIGTERM)
           // wait it end
           // start daemon
+          if daemon(0, 0) != 0 {
+            os.Exit(1)
+          }
         }
       }
       os.Exit(0)
   }
 
   // start listen
+  for _, val := range optGroups {
+    switch val.mode {
+      case "tcp":
+      {
+        l, err := net.Listen("tcp", val.listen)
+        if err != nil {
+          fmt.Println(err.Error())
+          os.Exit(0)
+        }
+        go tcpHandler(l)
+      }
+      case "http":
+        continue // TODO
+      default:
+        continue
+    }
+  }
 
   // handle signals
   // Set up channel on which to send signal notifications.
@@ -270,6 +377,7 @@ func signalHandler(cSignal chan os.Signal) {
       case syscall.SIGHUP, syscall.SIGUSR2:
         // upgrade, reopen
         // using exec.Command() to start a new instance
+        
       case syscall.SIGTERM, syscall.SIGINT:
         // wait all clients disconnect
         // quit
