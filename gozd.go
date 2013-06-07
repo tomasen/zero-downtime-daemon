@@ -18,17 +18,83 @@ import (
   "crypto/sha1"
   "runtime"
   "log"
+  "strings"
 )
+
+type configGroup struct {
+  name string
+  mode string
+  listen string // ip address or socket
+}
 
 // configuration
 var (
   optSendSignal= flag.String("s", "", "Send signal to a master process: <stop, quit, reopen, reload>.")
   optConfigFile= flag.String("c", "", "Set configuration file path." )
   optHelp= flag.Bool("h", false, "This help")
+  optGroups= []configGroup{}
 )
 
 func parseConfigFile(filePath string) bool {
+  configString, err := readStringFromFile(filePath)
+  if err != nil {
+    fmt.Println(err.Error())
+    return false
+  }
+
+  newGroup := configGroup{
+    name: "",
+    mode: "",
+    listen: "",
+  }
+  optGroups = append(optGroups, newGroup)
+  splitLines := strings.Split(configString, "\n")
+  groupIdx := 0
+  for idx := 0; idx < len(splitLines);idx++ {
+    param := extractParam(splitLines[idx])
+    if param == "" {
+      continue
+    }
+    
+    if strings.Contains(splitLines[idx], "mode") {
+      optGroups[groupIdx].mode = param
+    } else if strings.Contains(splitLines[idx], "listen") {
+      optGroups[groupIdx].listen = param
+    } else {
+      optGroups[groupIdx].name = param
+    }
+
+    if optGroups[groupIdx].name != "" && optGroups[groupIdx].mode != "" && optGroups[groupIdx].listen != "" {
+      newGroup := configGroup{
+        name: "",
+        mode: "",
+        listen: "",
+      }
+      optGroups = append(optGroups, newGroup)
+      groupIdx ++
+    }
+  }
   return true
+}
+
+// extract parameter between"[]"
+func extractParam(raw string) string {
+  if strings.Contains(raw, "#") {
+    return ""
+  }
+
+  idxBegin := strings.Index(raw, "[")
+  idxEnd := strings.Index(raw, "]")
+  if idxBegin < 0 || idxEnd < 0 {
+    return ""
+  } else {
+    resultByte := []byte(raw)
+    result :=resultByte[idxBegin:idxEnd]
+
+    str := string(result)
+    fmt.Println(str)
+    return string(resultByte[idxBegin+1:idxEnd])
+  }
 }
 
 func usage() {
@@ -147,6 +213,7 @@ func Daemonize() {
 
   // -conf parse config
   if (!parseConfigFile(*optConfigFile)) {
+    fmt.Println("Config file read error!")
     usage()
     os.Exit(1)
   }
@@ -189,12 +256,11 @@ func Daemonize() {
   // We must use a buffered channel or risk missing the signal
   // if we're not ready to receive when the signal is sent.
   cSignal := make(chan os.Signal, 1)
-  signal.Notify(cSignal, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR2, syscall.SIGINT)
-
-  go daemonRoutine(cSignal)
+  go signalHandler(cSignal)
 }
 
-func daemonRoutine(cSignal chan os.Signal) {
+func signalHandler(cSignal chan os.Signal) {
+  signal.Notify(cSignal, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR2, syscall.SIGINT)
   // Block until a signal is received.
   for s := range cSignal {
     fmt.Println("Got signal:", s)
@@ -208,3 +274,4 @@ func daemonRoutine(cSignal chan os.Signal) {
   }
   
 }
+
