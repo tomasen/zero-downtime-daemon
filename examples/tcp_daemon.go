@@ -7,9 +7,9 @@ import (
   "fmt"
   "runtime"
   "time"
-  //"strings"
   "syscall"
   "strconv"
+  "os"
 )
 
 const (
@@ -39,27 +39,16 @@ func serveTCP(conn gozd.GOZDConn) {
 
 func main() {
   runtime.GOMAXPROCS(runtime.NumCPU())
-  gozd.Daemonize()
-  // Listen on TCP port 13798 on all interfaces.
-  l, err := gozd.Listen("tcp", ":13798")
+  daemonChan := gozd.Daemonize()
+  err := gozd.RegistHandler("Group0", "serveTCP", serveTCP)
   if err != nil {
     fmt.Println(err.Error())
     return
   }
-  fmt.Println("Caller start to listen tcp port 13798")
-  
-  for {
-    // Wait for a connection.
-    conn, err := l.Accept()
-    if err != nil {
-      fmt.Println(err.Error())
-    }
-    // Handle the connection in a new goroutine.
-    // The loop then returns to accepting, so that
-    // multiple connections may be served concurrently.
-    go serveTCP(conn)
-    runtime.Gosched()
-  }
+  waitTillFinish(daemonChan) // wait till daemon send a exit signal
+}
 
-  return
+func waitTillFinish(daemonChan chan int) {
+  code := <- daemonChan
+  os.Exit(code)
 }

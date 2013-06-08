@@ -5,7 +5,6 @@ package gozd
 
 import (
   "net"
-  //"net/http"
   "flag"
   "os"
   "fmt"
@@ -19,20 +18,20 @@ import (
   "runtime"
   "log"
   "strings"
-  "time"
   "container/list"
-  "sync"
+  "reflect"
+  "errors"
 )
 
 type configGroup struct {
-  name string
   mode string
   listen string // ip address or socket
 }
 
-type GOZDCounter struct {
-  mutex sync.Mutex
-  c int
+type GOZDHandler struct {
+  funcName string
+  val reflect.Value
+  listener *GOZDListener
 }
 
 type GOZDConn struct {
@@ -40,50 +39,106 @@ type GOZDConn struct {
   net.Conn
 }
 
+type GOZDListener struct { // used for caller, instead of default net.Listener
+  net.Listener
+}
+
 // configuration
 var (
   optSendSignal= flag.String("s", "", "Send signal to a master process: <stop, quit, reopen, reload>.")
   optConfigFile= flag.String("c", "", "Set configuration file path." )
   optHelp= flag.Bool("h", false, "This help")
-  optGroups= []configGroup{}
+  optGroups= make(map[string]*configGroup)
+)
+
+// caller's infomation & channel
+var (
   openedGOZDConns = list.New()
-  openedGOZDListeners = list.New() // FDs opened by callers
-  daemonListeners = make(map[string]net.Listener) // use to receive daemon command
+  registeredGOZDHandler = make(map[string]*GOZDHandler) // key = group name used by specific user defined handler in config file
+  gozdTerminateChan chan int
 )
 
-const (
-  TCP_REQUEST_MAX_BYTES = 2 * 1024 // 2KB
-  TCP_CONNECTION_TIMEOUT = 2 * time.Minute
-)
-
-type GOZDListener struct { // used for caller, instead of default net.Listener
-  element *list.Element
-  net.Listener
-}
-
-func newDaemonListener(netType, laddr, name string) (net.Listener, error) {
+func newGOZDListener(netType, laddr string) (*GOZDListener, error) {
   l, err := net.Listen(netType, laddr)
-  if err != nil {
-    fmt.Println(err.Error())
-    return nil, err
-  }
-  daemonListeners[name] = l
-  return l, err
-}
-
-func Listen(netType, laddr string) (GOZDListener, error) {
-  l, err := net.Listen(netType, laddr)
-  listenerGOZD := GOZDListener{Listener: l}
-  if err != nil {
-    return listenerGOZD, err
-  }
-
-  listenerGOZD.element = openedGOZDListeners.PushBack(listenerGOZD)
+  listenerGOZD := new(GOZDListener)
+  listenerGOZD.Listener = l
   return listenerGOZD, err
 }
 
+// Regist callback handler
+// Will add conn gozd.GOZDConn into fn automaticlly
+// If no extra parameters needed, fn = nil
+func RegistHandler(groupName, functionName string, fn interface{}) (err error) {
+  v := reflect.ValueOf(fn)
+
+  defer func(v reflect.Value) {
+    if e := recover(); e != nil {
+      err = errors.New("Callback: [" + groupName + "]" + functionName + "is not callable.")
+      return
+    }
+
+    if _, ok := optGroups[groupName]; !ok {
+      err = errors.New("Group " + groupName + "not exist!")
+      return
+    }
+
+    l, errListen := newGOZDListener(optGroups[groupName].mode, optGroups[groupName].listen)
+    if errListen != nil {
+      err = errListen
+      return
+    }
+    newHandler := new(GOZDHandler)
+    newHandler.funcName = functionName
+    newHandler.val = v
+    newHandler.listener = l
+    registeredGOZDHandler[groupName] = newHandler
+    
+    go startAcceptConn(groupName, l)
+  }(v)
+
+  v.Type().NumIn()
+  return
+}
+
+func startAcceptConn(groupName string, listener *GOZDListener) {
+  for {
+    // Wait for a connection.
+    conn, err := listener.Accept()
+    if err != nil {
+      fmt.Println(err.Error())
+      return
+    }
+    // Handle the connection in a new goroutine.
+    // The loop then returns to accepting, so that
+    // multiple connections may be served concurrently.
+    go callHandler(groupName, conn)
+
+    runtime.Gosched()
+  }  
+
+}
+
+func callHandler(groupName string, params ...interface{}) {
+  if _, ok := registeredGOZDHandler[groupName]; !ok {
+    fmt.Println(groupName + " does not exist.")
+    return
+  }
+
+  handler := registeredGOZDHandler[groupName]
+  if len(params) != handler.val.Type().NumIn() {
+    fmt.Println("Invalid param of[" + groupName + "]" + handler.funcName)
+    return
+  }
+  
+  in := make([]reflect.Value, len(params))
+  for k, param := range params {
+    in[k] = reflect.ValueOf(param)
+  }
+  
+  handler.val.Call(in)
+}
+
 func (listener *GOZDListener) Accept() (GOZDConn, error) {
-  fmt.Println("GOZDListener Accepted.")
   conn, err := listener.Listener.Accept()
   connGOZD := GOZDConn{Conn: conn}
   if err != nil {
@@ -98,8 +153,13 @@ func (listener *GOZDListener) Accept() (GOZDConn, error) {
 
 func (listener *GOZDListener) Close() {
   fmt.Println("GOZDListener Closed.")
-  openedGOZDListeners.Remove(listener.element)
   listener.Listener.Close()
+  for k, v := range registeredGOZDHandler {
+    if v.listener == listener {
+      registeredGOZDHandler[k] = nil
+      break
+    }
+  }
 }
 
 func (conn *GOZDConn) Close() error {
@@ -115,14 +175,9 @@ func parseConfigFile(filePath string) bool {
     return false
   }
 
-  newGroup := configGroup{
-    name: "",
-    mode: "",
-    listen: "",
-  }
-  optGroups = append(optGroups, newGroup)
+  newGroup := new(configGroup)
   splitLines := strings.Split(configString, "\n")
-  groupIdx := 0
+  groupName := ""
   for idx := 0; idx < len(splitLines);idx++ {
     param := extractParam(splitLines[idx])
     if param == "" {
@@ -130,21 +185,21 @@ func parseConfigFile(filePath string) bool {
     }
     
     if strings.Contains(splitLines[idx], "mode") {
-      optGroups[groupIdx].mode = param
+      if groupName != "" {
+        newGroup.mode = param
+      }
     } else if strings.Contains(splitLines[idx], "listen") {
-      optGroups[groupIdx].listen = param
+      if groupName != "" {
+        newGroup.listen = param
+      }
     } else {
-      optGroups[groupIdx].name = param
+      groupName = param
+      optGroups[groupName] = newGroup
     }
 
-    if optGroups[groupIdx].name != "" && optGroups[groupIdx].mode != "" && optGroups[groupIdx].listen != "" {
-      newGroup := configGroup{
-        name: "",
-        mode: "",
-        listen: "",
-      }
-      optGroups = append(optGroups, newGroup)
-      groupIdx ++
+    if groupName != "" && newGroup.mode != "" && newGroup.listen != "" {
+      newGroup = new(configGroup)
+      groupName = ""
     }
   }
   return true
@@ -266,58 +321,7 @@ func daemon(nochdir, noclose int) int {
   return 0
 }
   
-// These functions are used to handle daemon control commands & dispatch, not for outsiders
-func commandDispatcherTCP(conn net.Conn) {
-
-  conn.SetReadDeadline(time.Now().Add(TCP_CONNECTION_TIMEOUT))
-  request := make([]byte, TCP_REQUEST_MAX_BYTES)
-  defer conn.Close()
-  
-  for {
-    read_len, err := conn.Read(request)
-    if err != nil {
-      fmt.Println(err.Error())
-      break
-    }
-
-    if read_len == 0 {
-      break
-    }
-
-    if strings.Contains(string(request), "DISCONNECT") {
-      break // client disconnected
-    }
-
-    // TODO: Parse & Dispatch request
-  }
-}
-
-// TODO
-/*func commandDispatcherHTTP(pattern string, handler func(http.ResponseWriter, *http.Request)) {
-  
-}
-
-func commandDispatcherFCGI(pattern string, handler http.Handler) {
-  
-}*/
-
-func tcpHandler(l net.Listener) {
-  for {
-    // Wait for a connection.
-    conn, err := l.Accept()
-    if err != nil {
-      log.Fatal(err)
-    }
-    // Handle the connection in a new goroutine.
-    // The loop then returns to accepting, so that
-    // multiple connections may be served concurrently.
-    go commandDispatcherTCP(conn)
-
-    runtime.Gosched()
-  }
-}
-
-func Daemonize() {
+func Daemonize() (chan int) {
   // parse arguments
   flag.Parse()
 
@@ -368,31 +372,14 @@ func Daemonize() {
       os.Exit(0)
   }
 
-  // start listen
-  for _, val := range optGroups {
-    switch val.mode {
-      case "tcp":
-      {
-        l, err := net.Listen("tcp", val.listen)
-        if err != nil {
-          fmt.Println(err.Error())
-          os.Exit(0)
-        }
-        go tcpHandler(l)
-      }
-      case "http":
-        continue // TODO
-      default:
-        continue
-    }
-  }
-
   // handle signals
   // Set up channel on which to send signal notifications.
   // We must use a buffered channel or risk missing the signal
   // if we're not ready to receive when the signal is sent.
   cSignal := make(chan os.Signal, 1)
   go signalHandler(cSignal)
+  gozdTerminateChan = make(chan int, 1)
+  return gozdTerminateChan
 }
 
 func signalHandler(cSignal chan os.Signal) {
