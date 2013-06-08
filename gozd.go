@@ -46,8 +46,9 @@ var (
   optConfigFile= flag.String("c", "", "Set configuration file path." )
   optHelp= flag.Bool("h", false, "This help")
   optGroups= []configGroup{}
-  Listeners = make(map[string]net.Listener) // caller's net.Listener
-  OpenedConns = list.New() // FDs opened by callers
+  openedGOZDConns = list.New()
+  openedGOZDListeners = list.New() // FDs opened by callers
+  daemonListeners = make(map[string]net.Listener) // use to receive daemon command
 )
 
 const (
@@ -56,32 +57,54 @@ const (
 )
 
 type GOZDListener struct { // used for caller, instead of default net.Listener
+  element *list.Element
   net.Listener
-  stopped bool
-  connCount GOZDCounter
-  // TODO: Should provide a channel for caller to close listeners
 }
 
-func newListener(l net.Listener, name string) (listener *GOZDListener) {
-  listener = &GOZDListener{Listener: l}
-  return
-}
-
-func (listener *GOZDListener) Accept() (conn net.Conn, err error) {
-  conn, err = listener.Listener.Accept()
+func newDaemonListener(netType, laddr, name string) (net.Listener, error) {
+  l, err := net.Listen(netType, laddr)
   if err != nil {
-    return
+    fmt.Println(err.Error())
+    return nil, err
+  }
+  daemonListeners[name] = l
+  return l, err
+}
+
+func Listen(netType, laddr string) (GOZDListener, error) {
+  l, err := net.Listen(netType, laddr)
+  listenerGOZD := GOZDListener{Listener: l}
+  if err != nil {
+    return listenerGOZD, err
+  }
+
+  listenerGOZD.element = openedGOZDListeners.PushBack(listenerGOZD)
+  return listenerGOZD, err
+}
+
+func (listener *GOZDListener) Accept() (GOZDConn, error) {
+  fmt.Println("GOZDListener Accepted.")
+  conn, err := listener.Listener.Accept()
+  connGOZD := GOZDConn{Conn: conn}
+  if err != nil {
+    return connGOZD, err
   }
 
   // Wrap the returned connection, so that we can observe when
   // it is closed.
-  GOZDconn := GOZDConn{Conn: conn}
-  GOZDconn.element = OpenedConns.PushBack(GOZDconn)
-  return
+  connGOZD.element = openedGOZDConns.PushBack(connGOZD)
+  return connGOZD, err
 }
 
-func (conn GOZDConn) Close() error {
-  OpenedConns.Remove(conn.element)
+func (listener *GOZDListener) Close() {
+  fmt.Println("GOZDListener Closed.")
+  openedGOZDListeners.Remove(listener.element)
+  listener.Listener.Close()
+}
+
+func (conn *GOZDConn) Close() error {
+  fmt.Println("GOZDConn Closed.")
+  openedGOZDConns.Remove(conn.element)
   return conn.Conn.Close()
 }
 
@@ -193,12 +216,14 @@ func daemon(nochdir, noclose int) int {
   // fork off the parent process
   ret, ret2, err = syscall.RawSyscall(syscall.SYS_FORK, 0, 0, 0)
   if err != 0 {
-      return -1
+    fmt.Println("error!"+ err.Error())
+    return -1
   }
 
   // failure
   if ret2 < 0 {
-      os.Exit(-1)
+    fmt.Println("failure!"+ string(ret2))
+    os.Exit(-1)
   }
 
   // handle exception for darwin
@@ -208,6 +233,7 @@ func daemon(nochdir, noclose int) int {
 
   // if we got a good PID, then we call exit the parent process.
   if ret > 0 {
+    fmt.Println("Exit parent process.")
       os.Exit(0)
   }
 
@@ -323,9 +349,10 @@ func Daemonize() {
     
     case "start","":
       // start daemon
-      if daemon(0, 0) != 0 {
+      fmt.Println("Start daemon!")
+      /*if daemon(0, 0) != 0 {
         os.Exit(1)
-      }
+      }*/
     case "reopen","reload":
       if (pid != 0) {
         p,err := os.FindProcess(pid)
