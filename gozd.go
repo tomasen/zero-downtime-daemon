@@ -28,18 +28,18 @@ type configGroup struct {
   listen string // ip address or socket
 }
 
-type GOZDHandler struct {
+type gozdHandler struct {
   funcName string
   val reflect.Value
-  listener *GOZDListener
+  listener *gozdListener
 }
 
-type GOZDConn struct {
+type gozdConn struct {
   element *list.Element
   net.Conn
 }
 
-type GOZDListener struct { // used for caller, instead of default net.Listener
+type gozdListener struct { // used for caller, instead of default net.Listener
   net.Listener
 }
 
@@ -54,13 +54,13 @@ var (
 // caller's infomation & channel
 var (
   openedGOZDConns = list.New()
-  registeredGOZDHandler = make(map[string]*GOZDHandler) // key = group name used by specific user defined handler in config file
+  registeredGOZDHandler = make(map[string]*gozdHandler) // key = group name used by specific user defined handler in config file
   gozdTerminateChan chan int
 )
 
-func newGOZDListener(netType, laddr string) (*GOZDListener, error) {
+func newGOZDListener(netType, laddr string) (*gozdListener, error) {
   l, err := net.Listen(netType, laddr)
-  listenerGOZD := new(GOZDListener)
+  listenerGOZD := new(gozdListener)
   listenerGOZD.Listener = l
   return listenerGOZD, err
 }
@@ -87,7 +87,7 @@ func RegistHandler(groupName, functionName string, fn interface{}) (err error) {
       err = errListen
       return
     }
-    newHandler := new(GOZDHandler)
+    newHandler := new(gozdHandler)
     newHandler.funcName = functionName
     newHandler.val = v
     newHandler.listener = l
@@ -100,7 +100,7 @@ func RegistHandler(groupName, functionName string, fn interface{}) (err error) {
   return
 }
 
-func startAcceptConn(groupName string, listener *GOZDListener) {
+func startAcceptConn(groupName string, listener *gozdListener) {
   for {
     // Wait for a connection.
     conn, err := listener.Accept()
@@ -138,9 +138,9 @@ func callHandler(groupName string, params ...interface{}) {
   handler.val.Call(in)
 }
 
-func (listener *GOZDListener) Accept() (GOZDConn, error) {
+func (listener *gozdListener) Accept() (gozdConn, error) {
   conn, err := listener.Listener.Accept()
-  connGOZD := GOZDConn{Conn: conn}
+  connGOZD := gozdConn{Conn: conn}
   if err != nil {
     return connGOZD, err
   }
@@ -151,7 +151,7 @@ func (listener *GOZDListener) Accept() (GOZDConn, error) {
   return connGOZD, err
 }
 
-func (listener *GOZDListener) Close() {
+func (listener *gozdListener) Close() {
   fmt.Println("GOZDListener Closed.")
   listener.Listener.Close()
   for k, v := range registeredGOZDHandler {
@@ -162,7 +162,7 @@ func (listener *GOZDListener) Close() {
   }
 }
 
-func (conn *GOZDConn) Close() error {
+func (conn *gozdConn) Close() error {
   fmt.Println("GOZDConn Closed.")
   openedGOZDConns.Remove(conn.element)
   return conn.Conn.Close()
