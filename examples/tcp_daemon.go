@@ -17,7 +17,7 @@ const (
   TCP_CONNECTION_TIMEOUT = 12 * time.Hour
 )
 
-func serveTCP(conn gozd.GOZDConn) {
+func serveTCP(conn gozd.Conn) {
   fmt.Println("Caller serveTCP!")
   conn.SetDeadline(time.Now().Add(TCP_CONNECTION_TIMEOUT))
   defer conn.Close()

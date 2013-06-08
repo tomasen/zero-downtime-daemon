@@ -34,7 +34,7 @@ type gozdHandler struct {
   listener *gozdListener
 }
 
-type gozdConn struct {
+type Conn struct {
   element *list.Element
   net.Conn
 }
@@ -45,29 +45,27 @@ type gozdListener struct { // used for caller, instead of default net.Listener
 
 // configuration
 var (
-  optSendSignal= flag.String("s", "", "Send signal to a master process: <stop, quit, reopen, reload>.")
-  optConfigFile= flag.String("c", "", "Set configuration file path." )
-  optHelp= flag.Bool("h", false, "This help")
-  optGroups= make(map[string]*configGroup)
+  optSendSignal = flag.String("s", "", "Send signal to a master process: <stop, quit, reopen, reload>.")
+  optConfigFile = flag.String("c", "", "Set configuration file path." )
+  optHelp = flag.Bool("h", false, "This help")
+  optGroups = make(map[string]*configGroup)
 )
 
 // caller's infomation & channel
 var (
   openedGOZDConns = list.New()
   registeredGOZDHandler = make(map[string]*gozdHandler) // key = group name used by specific user defined handler in config file
-  gozdTerminateChan chan int
+  mainRoutineCommChan = make(chan int, 1)
 )
 
 func newGOZDListener(netType, laddr string) (*gozdListener, error) {
   l, err := net.Listen(netType, laddr)
-  listenerGOZD := new(gozdListener)
-  listenerGOZD.Listener = l
-  return listenerGOZD, err
+  l_gozd := new(gozdListener)
+  l_gozd.Listener = l
+  return l_gozd, err
 }
 
 // Regist callback handler
-// Will add conn gozd.GOZDConn into fn automaticlly
-// If no extra parameters needed, fn = nil
 func RegistHandler(groupName, functionName string, fn interface{}) (err error) {
   v := reflect.ValueOf(fn)
 
@@ -138,34 +136,37 @@ func callHandler(groupName string, params ...interface{}) {
   handler.val.Call(in)
 }
 
-func (listener *gozdListener) Accept() (gozdConn, error) {
-  conn, err := listener.Listener.Accept()
-  connGOZD := gozdConn{Conn: conn}
+// Override Accept() method in net.Listener interface
+func (l *gozdListener) Accept() (Conn, error) {
+  conn, err := l.Listener.Accept()
+  conn_gozd := Conn{Conn: conn}
   if err != nil {
-    return connGOZD, err
+    return conn_gozd, err
   }
 
   // Wrap the returned connection, so that we can observe when
   // it is closed.
-  connGOZD.element = openedGOZDConns.PushBack(connGOZD)
-  return connGOZD, err
+  conn_gozd.element = openedGOZDConns.PushBack(conn_gozd)
+  return conn_gozd, err
 }
 
-func (listener *gozdListener) Close() {
+// Override Close() method in net.Listener interface
+func (l *gozdListener) Close() {
   fmt.Println("GOZDListener Closed.")
-  listener.Listener.Close()
+  l.Listener.Close()
   for k, v := range registeredGOZDHandler {
-    if v.listener == listener {
+    if v.listener == l {
       registeredGOZDHandler[k] = nil
       break
     }
   }
 }
 
-func (conn *gozdConn) Close() error {
+// Override Close() method in net.Conn interface
+func (c *Conn) Close() error {
   fmt.Println("GOZDConn Closed.")
-  openedGOZDConns.Remove(conn.element)
-  return conn.Conn.Close()
+  openedGOZDConns.Remove(c.element)
+  return c.Conn.Close() // call net.Conn.Close()
 }
 
 func parseConfigFile(filePath string) bool {
@@ -178,7 +179,7 @@ func parseConfigFile(filePath string) bool {
   newGroup := new(configGroup)
   splitLines := strings.Split(configString, "\n")
   groupName := ""
-  for idx := 0; idx < len(splitLines);idx++ {
+  for idx := 0; idx < len(splitLines); idx++ {
     param := extractParam(splitLines[idx])
     if param == "" {
       continue
@@ -235,7 +236,7 @@ func writeStringToFile (filepath string, contents string) error {
   return ioutil.WriteFile(filepath, []byte(contents), 0x777)
 }
 
-func getPidByConf (confPath string, prefix string) (int, error) {
+func getPidByConf(confPath string, prefix string) (int, error) {
   
   confPath,err := filepath.Abs(confPath)
   fmt.Println("Confpath: " + confPath)
@@ -378,8 +379,8 @@ func Daemonize() (chan int) {
   // if we're not ready to receive when the signal is sent.
   cSignal := make(chan os.Signal, 1)
   go signalHandler(cSignal)
-  gozdTerminateChan = make(chan int, 1)
-  return gozdTerminateChan
+  mainRoutineCommChan = make(chan int, 1)
+  return mainRoutineCommChan
 }
 
 func signalHandler(cSignal chan os.Signal) {
