@@ -7,6 +7,7 @@ import (
   "net"
   "flag"
   "os"
+  "os/exec"
   "fmt"
   "io"
   "os/signal"
@@ -21,6 +22,8 @@ import (
   "container/list"
   "reflect"
   "errors"
+  "time"
+  "bitbucket.org/kardianos/osext"
 )
 
 type configGroup struct {
@@ -43,13 +46,19 @@ type gozdListener struct { // used for caller, instead of default net.Listener
   net.Listener
 }
 
+type oldProcessFD struct {
+  fd int
+  name string
+}
+
 // configuration
 var (
-  optSendSignal = flag.String("s", "", "Send signal to a master process: <stop, quit, reopen, reload>.")
+  optSendSignal = flag.String("s", "", "Send signal to old process: <stop, quit, reopen, reload>.")
   optConfigFile = flag.String("c", "", "Set configuration file path." )
   optRunForeground = flag.Bool("f", false, "Running in foreground for debug.")
   optHelp = flag.Bool("h", false, "This help")
   optGroups = make(map[string]*configGroup)
+  oldProcessFDs = []oldProcessFD{}
 )
 
 // caller's infomation & channel
@@ -60,7 +69,16 @@ var (
 )
 
 func newGOZDListener(netType, laddr string) (*gozdListener, error) {
-  l, err := net.Listen(netType, laddr)
+  openedCnt := len(registeredGOZDHandler)
+  var l net.Listener
+  var err error
+  if openedCnt < len(oldProcessFDs) {
+    fmt.Println("Listen with old FDs")
+    f := os.NewFile(uintptr(oldProcessFDs[openedCnt].fd), oldProcessFDs[openedCnt].name)
+    l, err = net.FileListener(f)
+  } else {
+    l, err = net.Listen(netType, laddr)
+  }
   l_gozd := new(gozdListener)
   l_gozd.Listener = l
   return l_gozd, err
@@ -86,6 +104,7 @@ func RegistHandler(groupName, functionName string, fn interface{}) (err error) {
       err = errListen
       return
     }
+
     newHandler := new(gozdHandler)
     newHandler.funcName = functionName
     newHandler.val = v
@@ -233,30 +252,87 @@ func readStringFromFile(filepath string) (string, error) {
   return string(contents), err
 }
 
-func writeStringToFile (filepath string, contents string) error {
-  return ioutil.WriteFile(filepath, []byte(contents), 0x777)
+func writeStringToFile(filepath string, contents string) error {
+  return ioutil.WriteFile(filepath, []byte(contents), os.ModeAppend)
 }
 
-func getPidByConf(confPath string, prefix string) (int, error) {
+func truncateFile(filePath string) error {
+  f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_TRUNC, os.ModePerm)
+  if err != nil {
+    fmt.Println(err)
+    return err
+  }
+  
+  err = f.Truncate(0)
+  if err != nil {
+    fmt.Println(err)
+    return err
+  }
+
+  return err
+}
+
+func appendFile(filePath string, contents string) error {
+  f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, os.ModePerm)
+  if err != nil {
+    fmt.Println(err)
+    return err
+  }
+
+  var n int
+  n, err = f.Write([]byte(contents))
+  f.Close()
+
+  if err == nil && n < len(contents) {
+    err = io.ErrShortWrite
+  }
+  
+  return err
+}
+
+// Get running process info(pid, fd, etc...)
+func getRunningInfoByConf(confPath string, prefix string) ([]string, error) {
   
   confPath,err := filepath.Abs(confPath)
   fmt.Println("Confpath: " + confPath)
   if (err != nil) {
-    return 0, err
+    return []string{}, err
   }
   
+  infoFilepath := getRunningInfoPathByConf(confPath, prefix)
+  
+  infoString, err := readStringFromFile(infoFilepath)
+  fmt.Println("Info Filepath: " + infoFilepath)
+  fmt.Println("Info string: "+ infoString)
+  if (err != nil) {
+    return []string{}, err
+  }
+  result := strings.Split(infoString, "|")
+  return result, err
+}
+
+func resetRunningInfoByConf(confPath string, prefix string) {
+  infoFilepath := getRunningInfoPathByConf(confPath, prefix)
+  err := truncateFile(infoFilepath)
+  if err != nil {
+    fmt.Println(err)
+    return
+  }
+  
+  str := strconv.Itoa(os.Getpid())
+  str += "|"
+  err = appendFile(confPath, str)
+  if err != nil {
+    fmt.Println(err)
+    return
+  }
+}
+
+func getRunningInfoPathByConf(confPath string, prefix string) string {
   hashSha1 := sha1.New()
   io.WriteString(hashSha1, confPath)
-  pidFilepath := filepath.Join(os.TempDir(), fmt.Sprintf("%v_%x.pid", prefix, hashSha1.Sum(nil)))
-  
-  pidString, err := readStringFromFile(pidFilepath)
-  fmt.Println("Filepath: " + pidFilepath)
-  fmt.Println("PID string: "+ pidString)
-  if (err != nil) {
-    return 0, err
-  }
-  
-  return strconv.Atoi(pidString)
+  infoFilepath := filepath.Join(os.TempDir(), fmt.Sprintf("%v_%x.gozd", prefix, hashSha1.Sum(nil)))
+  return infoFilepath
 }
 
 // This function is the implementation of daemon() in standard C library.
@@ -275,7 +351,6 @@ func daemon(nochdir, noclose int) int {
   darwin := runtime.GOOS == "darwin"
 
   // already a daemon
-  
   if syscall.Getppid() == 1 {
     return 0
   }
@@ -342,6 +417,7 @@ func daemon(nochdir, noclose int) int {
 }
   
 func Daemonize() (chan int) {
+  // TODO: Multiple call of this function should return nothing
   // parse arguments
   flag.Parse()
 
@@ -353,11 +429,21 @@ func Daemonize() (chan int) {
   }
 
   // find master process id by conf
-  pid,err := getPidByConf(*optConfigFile, "gozerodown")
-  if (err != nil) {
+  configs, err := getRunningInfoByConf(*optConfigFile, "gozerodown")
+  var pid int
+  cfgCnt := len(configs)
+  if (err != nil || cfgCnt < 1) {
     pid = 0 
+  } else {
+    pid, _ = strconv.Atoi(configs[0])
   }
-  
+
+  for i := 1; i < cfgCnt; i+=2 {
+    fd, _ := strconv.Atoi(configs[i])
+    name := configs[i+1]
+    oldProcessFDs = append(oldProcessFDs, oldProcessFD{fd, name})
+  }
+
   // -s send signal to the process that has same config
   switch (*optSendSignal) {
     case "stop": 
@@ -374,25 +460,22 @@ func Daemonize() (chan int) {
     case "start","":
       // start daemon
       fmt.Println("Start daemon!")
-      if daemon(0, 1) != 0 {
+      if daemon(0, 0) != 0 {
         os.Exit(1)
       }
     case "reopen","reload":
+      // find old process, send SIGTERM then exit self
+      // the real new process running later starts by old process received SIGTERM
       if (pid != 0) {
         p,err := os.FindProcess(pid)
         if (err == nil) {
           p.Signal(syscall.SIGTERM)
-          // wait it end
-          // start daemon
-          if daemon(0, 0) != 0 {
-            os.Exit(1)
-          }
         }
       }
       os.Exit(0)
   }
 
-  // handle signals
+  // Handle OS signals
   // Set up channel on which to send signal notifications.
   // We must use a buffered channel or risk missing the signal
   // if we're not ready to receive when the signal is sent.
@@ -410,10 +493,17 @@ func signalHandler(cSignal chan os.Signal) {
     switch (s) {
       case syscall.SIGHUP, syscall.SIGUSR2:
         // upgrade, reopen
-        // using exec.Command() to start a new instance
-        
+        // 1. write running process FDs into info config(*.gozd) before starting (Unclear: Need dup() or not?)
+        // 2. stop port listening
+        // 3. using exec.Command() to start a new instance
+        dupNetFDs()
+        stopListening()
+        startNewInstance("reopen")
       case syscall.SIGTERM, syscall.SIGINT:
         // wait all clients disconnect
+        c := make(chan int , 1)
+        go waitTillAllConnClosed(c)
+        <- c
         // quit
         os.Exit(0)
     }
@@ -421,3 +511,48 @@ func signalHandler(cSignal chan os.Signal) {
   
 }
 
+func startNewInstance(actionToOldProcess string) {
+  path, _ := osext.Executable()
+  cmdString := path + fmt.Sprintf(" -s %s", actionToOldProcess) + fmt.Sprintf(" -c %s", optConfigFile)
+  if *optRunForeground == true {
+    cmdString += " -f"
+  }
+
+  cmd := exec.Command(cmdString)
+  fmt.Println("starting cmd: ", cmd.Args)
+  if err := cmd.Start(); err != nil {
+    fmt.Println("error:", err)
+  }
+}
+
+// Dup old process's fd to new one, write FD & name into info file.
+func dupNetFDs() {
+  for _, v := range registeredGOZDHandler {
+    l := v.listener.Listener.(*net.TCPListener) // TODO: Support to net.UnixListener
+    newFD, err := l.File() // net.Listener.File() call dup() to return a new FD, no need to create another later.
+    if err != nil {
+      fd := newFD.Fd()
+      name := newFD.Name()
+      infoPath := getRunningInfoPathByConf(*optConfigFile, "gozerodown")
+      resetRunningInfoByConf(*optConfigFile, "gozerodown")
+      appendFile(infoPath, strconv.Itoa(int(fd)) + "|")
+      appendFile(infoPath, name + "|")
+    } else {
+      fmt.Println(err)
+    }
+  }
+}
+
+func stopListening() {
+  for _, v := range registeredGOZDHandler {
+    l := v.listener.Listener
+    l.Close()
+  }
+}
+
+func waitTillAllConnClosed(c chan int) {
+  for openedGOZDConns.Len() != 0 {
+    time.Sleep(1 * time.Second)
+  }
+  c <- 1
+}
