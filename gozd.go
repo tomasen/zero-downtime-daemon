@@ -47,6 +47,7 @@ type gozdListener struct { // used for caller, instead of default net.Listener
 var (
   optSendSignal = flag.String("s", "", "Send signal to a master process: <stop, quit, reopen, reload>.")
   optConfigFile = flag.String("c", "", "Set configuration file path." )
+  optRunForeground = flag.Bool("f", false, "Running in foreground for debug.")
   optHelp = flag.Bool("h", false, "This help")
   optGroups = make(map[string]*configGroup)
 )
@@ -258,15 +259,25 @@ func getPidByConf(confPath string, prefix string) (int, error) {
   return strconv.Atoi(pidString)
 }
 
+// This function is the implementation of daemon() in standard C library.
+// It forks a child process which copys itself, then terminate itself to make child's PPID = 1
+// For more detail, run "man 3 daemon"
 func daemon(nochdir, noclose int) int {
   var ret, ret2 uintptr
   var err syscall.Errno
 
+  // If running at foreground, don't fork and continue.
+  // This is useful for development & debug
+  if *optRunForeground == false {
+    return 0
+  }
+
   darwin := runtime.GOOS == "darwin"
 
   // already a daemon
+  
   if syscall.Getppid() == 1 {
-      return 0
+    return 0
   }
 
   // fork off the parent process
@@ -275,6 +286,11 @@ func daemon(nochdir, noclose int) int {
     fmt.Println("error!"+ err.Error())
     return -1
   }
+
+  pid_after_fork := strconv.Itoa(syscall.Getpid())
+  ppid_after_fork := strconv.Itoa(syscall.Getppid())
+  fmt.Println("PID after fork: " + pid_after_fork)
+  fmt.Println("PPID after fork: " + ppid_after_fork)
 
   // failure
   if ret2 < 0 {
@@ -289,9 +305,12 @@ func daemon(nochdir, noclose int) int {
 
   // if we got a good PID, then we call exit the parent process.
   if ret > 0 {
-    fmt.Println("Exit parent process.")
-      os.Exit(0)
+    fmt.Println("Exit parent process PID: " + pid_after_fork)
+    os.Exit(0)
   }
+
+  fmt.Println("PID:" + pid_after_fork + " after parent process exited: " + strconv.Itoa(syscall.Getpid()))
+  fmt.Println("PPID:" + ppid_after_fork + " after parent process exited: " + strconv.Itoa(syscall.Getppid()))
 
   /* Change the file mode mask */
   _ = syscall.Umask(0)
@@ -309,7 +328,7 @@ func daemon(nochdir, noclose int) int {
       os.Chdir("/")
   }
 
-  if noclose == 0 {
+  if noclose == 0 && *optRunForeground == false {
       f, e := os.OpenFile("/dev/null", os.O_RDWR, 0)
       if e == nil {
           fd := f.Fd()
@@ -355,9 +374,9 @@ func Daemonize() (chan int) {
     case "start","":
       // start daemon
       fmt.Println("Start daemon!")
-      /*if daemon(0, 0) != 0 {
+      if daemon(0, 1) != 0 {
         os.Exit(1)
-      }*/
+      }
     case "reopen","reload":
       if (pid != 0) {
         p,err := os.FindProcess(pid)

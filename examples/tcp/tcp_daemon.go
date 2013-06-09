@@ -3,7 +3,7 @@
 package main
 
 import (
-  "../"
+  "../../"
   "fmt"
   "runtime"
   "time"
@@ -38,6 +38,9 @@ func serveTCP(conn gozd.Conn) {
 }
 
 func main() {
+  fmt.Println("New process starts.")
+  fmt.Printf("PID: %d\n", syscall.Getpid())
+  fmt.Printf("PPID: %d\n", syscall.Getppid())
   runtime.GOMAXPROCS(runtime.NumCPU())
   daemonChan := gozd.Daemonize()
   err := gozd.RegistHandler("Group0", "serveTCP", serveTCP)
