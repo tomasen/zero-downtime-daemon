@@ -504,8 +504,8 @@ func signalHandler(cSignal chan os.Signal) {
         c := make(chan int , 1)
         go waitTillAllConnClosed(c)
         <- c
-        // quit
-        os.Exit(0)
+        // quit, send signal to let caller do cleanups
+        mainRoutineCommChan <- 0
     }
   }
   
