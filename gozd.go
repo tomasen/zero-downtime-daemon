@@ -59,6 +59,7 @@ var (
   optHelp = flag.Bool("h", false, "This help")
   optGroups = make(map[string]*configGroup)
   oldProcessFDs = []oldProcessFD{}
+  gozdPrefix = "gozerodown" // used for SHA1 hash, change it with different daemons
 )
 
 // caller's infomation & channel
@@ -249,6 +250,8 @@ func usage() {
 
 func readStringFromFile(filepath string) (string, error) {
   contents, err := ioutil.ReadFile(filepath)
+  fmt.Println("readStringFromFile:")
+  fmt.Println(contents)
   return string(contents), err
 }
 
@@ -292,13 +295,6 @@ func appendFile(filePath string, contents string) error {
 
 // Get running process info(pid, fd, etc...)
 func getRunningInfoByConf(confPath string, prefix string) ([]string, error) {
-  
-  confPath,err := filepath.Abs(confPath)
-  fmt.Println("Confpath: " + confPath)
-  if (err != nil) {
-    return []string{}, err
-  }
-  
   infoFilepath := getRunningInfoPathByConf(confPath, prefix)
   
   infoString, err := readStringFromFile(infoFilepath)
@@ -329,9 +325,17 @@ func resetRunningInfoByConf(confPath string, prefix string) {
 }
 
 func getRunningInfoPathByConf(confPath string, prefix string) string {
+  confPathAbs, err := filepath.Abs(confPath)
+  if err != nil {
+    fmt.Println(err)
+    return ""
+  }
+
   hashSha1 := sha1.New()
-  io.WriteString(hashSha1, confPath)
+  io.WriteString(hashSha1, confPathAbs)
   infoFilepath := filepath.Join(os.TempDir(), fmt.Sprintf("%v_%x.gozd", prefix, hashSha1.Sum(nil)))
+  fmt.Println("confpath: " + confPathAbs)
+  fmt.Println("Info file path: " + infoFilepath)
   return infoFilepath
 }
 
@@ -429,7 +433,7 @@ func Daemonize() (chan int) {
   }
 
   // find master process id by conf
-  configs, err := getRunningInfoByConf(*optConfigFile, "gozerodown")
+  configs, err := getRunningInfoByConf(*optConfigFile, gozdPrefix)
   var pid int
   cfgCnt := len(configs)
   if (err != nil || cfgCnt < 1) {
@@ -437,6 +441,8 @@ func Daemonize() (chan int) {
   } else {
     pid, _ = strconv.Atoi(configs[0])
   }
+  fmt.Println("Configs: ")
+  fmt.Println(configs)
 
   for i := 1; i < cfgCnt; i+=2 {
     fd, _ := strconv.Atoi(configs[i])
@@ -446,7 +452,7 @@ func Daemonize() (chan int) {
 
   // -s send signal to the process that has same config
   switch (*optSendSignal) {
-    case "stop": 
+    case "stop":
     if (pid != 0) {
       p,err := os.FindProcess(pid)
       if (err == nil) {
@@ -458,11 +464,18 @@ func Daemonize() (chan int) {
     os.Exit(0)
     
     case "start","":
+      if (pid != 0) {
+        fmt.Println("Daemon already started.")
+        os.Exit(1)
+      }
       // start daemon
       fmt.Println("Start daemon!")
       if daemon(0, 0) != 0 {
         os.Exit(1)
       }
+      pid = os.Getpid()
+      path := getRunningInfoPathByConf(*optConfigFile, gozdPrefix)
+      writeStringToFile(path, strconv.Itoa(pid))
     case "reopen","reload":
       // find old process, send SIGTERM then exit self
       // the real new process running later starts by old process received SIGTERM
@@ -533,8 +546,8 @@ func dupNetFDs() {
     if err != nil {
       fd := newFD.Fd()
       name := newFD.Name()
-      infoPath := getRunningInfoPathByConf(*optConfigFile, "gozerodown")
-      resetRunningInfoByConf(*optConfigFile, "gozerodown")
+      infoPath := getRunningInfoPathByConf(*optConfigFile, gozdPrefix)
+      resetRunningInfoByConf(*optConfigFile, gozdPrefix)
       appendFile(infoPath, strconv.Itoa(int(fd)) + "|")
       appendFile(infoPath, name + "|")
     } else {
