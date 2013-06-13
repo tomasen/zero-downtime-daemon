@@ -1,22 +1,17 @@
 // Use of this source code is governed by a BSD-style license
-
 package main
-
 import (
-  "../../"
+  "bitbucket.org/PinIdea/go-zero-downtime-daemon"
   "fmt"
-  "runtime"
   "time"
   "syscall"
   "strconv"
   "os"
 )
-
 const (
   TCP_MAX_TRANSMISSION_BYTES = 2 * 1024 // 2KB
   TCP_CONNECTION_TIMEOUT = 12 * time.Hour
 )
-
 func serveTCP(conn gozd.Conn) {
   fmt.Println("Caller serveTCP!")
   conn.SetDeadline(time.Now().Add(TCP_CONNECTION_TIMEOUT))
@@ -38,19 +33,14 @@ func serveTCP(conn gozd.Conn) {
 }
 
 func main() {
-  fmt.Println("New process starts.")
-  fmt.Printf("PID: %d\n", syscall.Getpid())
-  fmt.Printf("PPID: %d\n", syscall.Getppid())
-  runtime.GOMAXPROCS(runtime.NumCPU())
-  daemonChan := gozd.Daemonize()
-  err := gozd.RegistHandler("Group0", "serveTCP", serveTCP)
+  daemonChan := gozd.Daemonize() // returns channel that connects with daemon
+  err := gozd.RegistHandler("Group0", "serveTCP", serveTCP) // regist your own handle function, parameters MUST contain a "gozd.Conn" type.
   if err != nil {
     fmt.Println(err.Error())
     return
   }
   waitTillFinish(daemonChan) // wait till daemon send a exit signal
 }
-
 func waitTillFinish(daemonChan chan int) {
   code := <- daemonChan
   os.Exit(code)
