@@ -60,6 +60,7 @@ var (
   optGroups = make(map[string]*configGroup)
   oldProcessFDs = []oldProcessFD{}
   gozdPrefix = "gozerodown" // used for SHA1 hash, change it with different daemons
+  isDaemonized = false
 )
 
 // caller's infomation & channel
@@ -260,12 +261,15 @@ func writeStringToFile(filepath string, contents string) error {
 }
 
 func truncateFile(filePath string) error {
-  f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_TRUNC, os.ModePerm)
+  f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_TRUNC, 0777)
   if err != nil {
     fmt.Println(err)
     return err
   }
-  
+  stat, _ := f.Stat()
+  fmt.Println("File Permission:")
+  fmt.Println(stat.Mode().Perm())
+ 
   err = f.Truncate(0)
   if err != nil {
     fmt.Println(err)
@@ -276,14 +280,18 @@ func truncateFile(filePath string) error {
 }
 
 func appendFile(filePath string, contents string) error {
-  f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, os.ModePerm)
+  f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0777)
+  //f, err := os.OpenFile(filePath, os.O_CREATE, 777)
   if err != nil {
-    fmt.Println(err)
     return err
   }
-
+  
+  stat, _ := f.Stat()
+  fmt.Println("File Permission:")
+  fmt.Println(stat.Mode().Perm())
   var n int
   n, err = f.Write([]byte(contents))
+  f.Sync()
   f.Close()
 
   if err == nil && n < len(contents) {
@@ -296,7 +304,7 @@ func appendFile(filePath string, contents string) error {
 // Get running process info(pid, fd, etc...)
 func getRunningInfoByConf(confPath string, prefix string) ([]string, error) {
   infoFilepath := getRunningInfoPathByConf(confPath, prefix)
-  
+
   infoString, err := readStringFromFile(infoFilepath)
   fmt.Println("Info Filepath: " + infoFilepath)
   fmt.Println("Info string: "+ infoString)
@@ -309,15 +317,11 @@ func getRunningInfoByConf(confPath string, prefix string) ([]string, error) {
 
 func resetRunningInfoByConf(confPath string, prefix string) {
   infoFilepath := getRunningInfoPathByConf(confPath, prefix)
-  err := truncateFile(infoFilepath)
-  if err != nil {
-    fmt.Println(err)
-    return
-  }
+  truncateFile(infoFilepath) // ignore any errors
   
   str := strconv.Itoa(os.Getpid())
   str += "|"
-  err = appendFile(confPath, str)
+  err := appendFile(infoFilepath, str)
   if err != nil {
     fmt.Println(err)
     return
@@ -420,8 +424,12 @@ func daemon(nochdir, noclose int) int {
   return 0
 }
   
-func Daemonize() (chan int) {
-  // TODO: Multiple call of this function should return nothing
+func Daemonize() (c chan int, isSucceed bool) {
+  if isDaemonized {
+    fmt.Println("Daemon already daemonized.")
+    return c, false
+  }
+
   // parse arguments
   flag.Parse()
 
@@ -454,10 +462,10 @@ func Daemonize() (chan int) {
   switch (*optSendSignal) {
     case "stop":
     if (pid != 0) {
-      p,err := os.FindProcess(pid)
-      if (err == nil) {
+      isRunning := IsProcessRunning(pid)
+      if (isRunning) {
+        p := GetRunningProcess(pid)
         p.Signal(syscall.SIGTERM)
-        // wait it end
         os.Exit(0)
       }
     }
@@ -465,27 +473,25 @@ func Daemonize() (chan int) {
     
     case "start","":
       if (pid != 0) {
-        fmt.Println("Daemon already started.")
-        os.Exit(1)
-      }
-      // start daemon
-      fmt.Println("Start daemon!")
-      if daemon(0, 0) != 0 {
-        os.Exit(1)
-      }
-      pid = os.Getpid()
-      path := getRunningInfoPathByConf(*optConfigFile, gozdPrefix)
-      writeStringToFile(path, strconv.Itoa(pid))
-    case "reopen","reload":
-      // find old process, send SIGTERM then exit self
-      // the real new process running later starts by old process received SIGTERM
-      if (pid != 0) {
-        p,err := os.FindProcess(pid)
-        if (err == nil) {
-          p.Signal(syscall.SIGTERM)
+        isRunning := IsProcessRunning(pid)
+        if isRunning {
+          fmt.Println("Daemon already started.")
+          os.Exit(1)
         }
       }
-      os.Exit(0)
+      startDaemon()
+    case "reopen","reload":
+      // find old process, send SIGTERM then exit self
+      // the 'real' new process running later starts by old process received SIGTERM
+      if (pid != 0) {
+        isRunning := IsProcessRunning(pid)
+        if isRunning {
+          p := GetRunningProcess(pid)
+          p.Signal(syscall.SIGTERM)
+          os.Exit(0)
+        }
+      }
+      startDaemon()
   }
 
   // Handle OS signals
@@ -494,8 +500,20 @@ func Daemonize() (chan int) {
   // if we're not ready to receive when the signal is sent.
   cSignal := make(chan os.Signal, 1)
   go signalHandler(cSignal)
-  mainRoutineCommChan = make(chan int, 1)
-  return mainRoutineCommChan
+  c = make(chan int, 1)
+  isDaemonized = true
+  return c, true
+}
+
+func startDaemon() {
+  fmt.Println("Start daemon!")
+  if daemon(0, 0) != 0 {
+    os.Exit(1)
+  }
+  pid := os.Getpid()
+  resetRunningInfoByConf(*optConfigFile, gozdPrefix)
+  path := getRunningInfoPathByConf(*optConfigFile, gozdPrefix)
+  writeStringToFile(path, strconv.Itoa(pid))
 }
 
 func signalHandler(cSignal chan os.Signal) {
@@ -524,6 +542,21 @@ func signalHandler(cSignal chan os.Signal) {
   
 }
 
+// A work-around solution since os.Findprocess() not working for now.
+func IsProcessRunning(pid int) bool {
+  if err := syscall.Kill(pid, 0); err != nil {
+    return false
+  } else {
+    return true
+  }
+}
+
+// A work-around solution to make a new os.Process since os.newProcess() is not public.
+func GetRunningProcess(pid int) (p *os.Process) {
+  p, _ = os.FindProcess(pid)
+  return p
+}
+
 func startNewInstance(actionToOldProcess string) {
   path, _ := osext.Executable()
   cmdString := path + fmt.Sprintf(" -s %s", actionToOldProcess) + fmt.Sprintf(" -c %s", optConfigFile)
@@ -543,7 +576,7 @@ func dupNetFDs() {
   for _, v := range registeredGOZDHandler {
     l := v.listener.Listener.(*net.TCPListener) // TODO: Support to net.UnixListener
     newFD, err := l.File() // net.Listener.File() call dup() to return a new FD, no need to create another later.
-    if err != nil {
+    if err == nil {
       fd := newFD.Fd()
       name := newFD.Name()
       infoPath := getRunningInfoPathByConf(*optConfigFile, gozdPrefix)
