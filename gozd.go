@@ -625,11 +625,15 @@ func Log(format string, args ...interface{}) {
   hour, minute, second := now.Clock()
   time_str := fmt.Sprintf("[GOZD][%d-%d-%d %d:%d:%d]", year, month, day, hour, minute, second)
   
+  var nameStr string
   pidStr := fmt.Sprintf("[%d]", runningPID)
   pc, _, _, _ := runtime.Caller(1)
   name := runtime.FuncForPC(pc).Name()
   names := strings.Split(name, ".")
-  callerStr := "[" + names[len(names)-1] + "] "
+  if len(names) > 0 {
+    nameStr = names[len(names)-1]
+  }
+  callerStr := "[" + nameStr + "] "
   fmt.Printf(time_str + pidStr + callerStr + format + "\n", args...)
 }
 
