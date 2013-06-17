@@ -339,8 +339,8 @@ func getRunningInfoPathByConf(confPath string, prefix string) string {
   io.WriteString(hashSha1, confPathAbs)
   workPath, _ := filepath.Abs("")
   infoFilepath := filepath.Join(workPath, "/tmp/", fmt.Sprintf("%v_%x.gozd", prefix, hashSha1.Sum(nil)))
-  err = syscall.Mkdir(workPath+"/tmp/", 0777)
-  if err != nil {
+  syscall.Mkdir(workPath+"/tmp/", 0777)
+  if err != nil && strings.Contains(err.Error(), "file exists") { // this is a "hack" solution
     fmt.Println("error:", err)
   }
   fmt.Println("confpath: " + confPathAbs)
@@ -505,7 +505,7 @@ func Daemonize() (c chan int, isSucceed bool) {
   // if we're not ready to receive when the signal is sent.
   cSignal := make(chan os.Signal, 1)
   go signalHandler(cSignal)
-  c = make(chan int, 1)
+  c = mainRoutineCommChan
   isDaemonized = true
   return c, true
 }
