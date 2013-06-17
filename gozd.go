@@ -337,7 +337,12 @@ func getRunningInfoPathByConf(confPath string, prefix string) string {
 
   hashSha1 := sha1.New()
   io.WriteString(hashSha1, confPathAbs)
-  infoFilepath := filepath.Join(os.TempDir(), fmt.Sprintf("%v_%x.gozd", prefix, hashSha1.Sum(nil)))
+  workPath, _ := filepath.Abs("")
+  infoFilepath := filepath.Join(workPath, "/tmp/", fmt.Sprintf("%v_%x.gozd", prefix, hashSha1.Sum(nil)))
+  err = syscall.Mkdir(workPath+"/tmp/", 0777)
+  if err != nil {
+    fmt.Println("error:", err)
+  }
   fmt.Println("confpath: " + confPathAbs)
   fmt.Println("Info file path: " + infoFilepath)
   return infoFilepath
@@ -352,7 +357,7 @@ func daemon(nochdir, noclose int) int {
 
   // If running at foreground, don't fork and continue.
   // This is useful for development & debug
-  if *optRunForeground == false {
+  if *optRunForeground == true {
     return 0
   }
 
@@ -452,7 +457,7 @@ func Daemonize() (c chan int, isSucceed bool) {
   fmt.Println("Configs: ")
   fmt.Println(configs)
 
-  for i := 1; i < cfgCnt; i+=2 {
+  for i := 1; i < cfgCnt; i += 2 {
     fd, _ := strconv.Atoi(configs[i])
     name := configs[i+1]
     oldProcessFDs = append(oldProcessFDs, oldProcessFD{fd, name})
@@ -471,7 +476,7 @@ func Daemonize() (c chan int, isSucceed bool) {
     }
     os.Exit(0)
     
-    case "start","":
+    case "start", "":
       if (pid != 0) {
         isRunning := IsProcessRunning(pid)
         if isRunning {
@@ -508,7 +513,7 @@ func Daemonize() (c chan int, isSucceed bool) {
 func startDaemon() {
   fmt.Println("Start daemon!")
   if daemon(0, 0) != 0 {
-    os.Exit(1)
+    os.Exit(1) 
   }
   pid := os.Getpid()
   resetRunningInfoByConf(*optConfigFile, gozdPrefix)
@@ -520,6 +525,8 @@ func signalHandler(cSignal chan os.Signal) {
   signal.Notify(cSignal, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR2, syscall.SIGINT)
   // Block until a signal is received.
   for s := range cSignal {
+    pid := os.Getpid()
+    fmt.Println("PID: ", pid)
     fmt.Println("Got signal:", s)
     switch (s) {
       case syscall.SIGHUP, syscall.SIGUSR2:
@@ -527,10 +534,12 @@ func signalHandler(cSignal chan os.Signal) {
         // 1. write running process FDs into info config(*.gozd) before starting (Unclear: Need dup() or not?)
         // 2. stop port listening
         // 3. using exec.Command() to start a new instance
+        fmt.Println("Action: PREPARE TO STOP")
         dupNetFDs()
         stopListening()
         startNewInstance("reopen")
       case syscall.SIGTERM, syscall.SIGINT:
+        fmt.Println("Action: CLOSE")
         // wait all clients disconnect
         c := make(chan int , 1)
         go waitTillAllConnClosed(c)
@@ -573,7 +582,8 @@ func startNewInstance(actionToOldProcess string) {
 
 // Dup old process's fd to new one, write FD & name into info file.
 func dupNetFDs() {
-  for _, v := range registeredGOZDHandler {
+  for k, v := range registeredGOZDHandler {
+    fmt.Println(k, v)
     l := v.listener.Listener.(*net.TCPListener) // TODO: Support to net.UnixListener
     newFD, err := l.File() // net.Listener.File() call dup() to return a new FD, no need to create another later.
     if err == nil {
