@@ -46,9 +46,10 @@ type gozdListener struct { // used for caller, instead of default net.Listener
   net.Listener
 }
 
-type oldProcessFD struct {
+type openedFD struct {
   fd int
   name string
+  group string
 }
 
 // configuration
@@ -58,7 +59,7 @@ var (
   optRunForeground = flag.Bool("f", false, "Running in foreground for debug.")
   optHelp = flag.Bool("h", false, "This help")
   optGroups = make(map[string]*configGroup)
-  oldProcessFDs = []oldProcessFD{}
+  openedFDs = []openedFD{}
   gozdPrefix = "gozerodown" // used for SHA1 hash, change it with different daemons
   isDaemonized = false
 )
@@ -74,9 +75,9 @@ func newGOZDListener(netType, laddr string) (*gozdListener, error) {
   openedCnt := len(registeredGOZDHandler)
   var l net.Listener
   var err error
-  if openedCnt < len(oldProcessFDs) {
-    fmt.Println("Listen with old FDs")
-    f := os.NewFile(uintptr(oldProcessFDs[openedCnt].fd), oldProcessFDs[openedCnt].name)
+  if openedCnt < len(openedFDs) {
+    fmt.Println("Listen with opened FDs")
+    f := os.NewFile(uintptr(openedFDs[openedCnt].fd), openedFDs[openedCnt].name)
     l, err = net.FileListener(f)
   } else {
     l, err = net.Listen(netType, laddr)
@@ -446,21 +447,26 @@ func Daemonize() (c chan int, isSucceed bool) {
   }
 
   // find master process id by conf
-  configs, err := getRunningInfoByConf(*optConfigFile, gozdPrefix)
+  infos, err := getRunningInfoByConf(*optConfigFile, gozdPrefix)
   var pid int
-  cfgCnt := len(configs)
-  if (err != nil || cfgCnt < 1) {
-    pid = 0 
+  infoCnt := len(infos)
+  if (err != nil || infoCnt < 1) {
+    pid = 0
   } else {
-    pid, _ = strconv.Atoi(configs[0])
+    pid, _ = strconv.Atoi(infos[0])
   }
-  fmt.Println("Configs: ")
-  fmt.Println(configs)
+  fmt.Println("Infos: ")
+  fmt.Println(infos)
 
-  for i := 1; i < cfgCnt; i += 2 {
-    fd, _ := strconv.Atoi(configs[i])
-    name := configs[i+1]
-    oldProcessFDs = append(oldProcessFDs, oldProcessFD{fd, name})
+  if infoCnt % 3 == 0 {
+    for i := 1; i < infoCnt; i += 3 {
+      fd, _ := strconv.Atoi(infos[i])
+      name := infos[i+1]
+      group := infos[i+2]
+      openedFDs = append(openedFDs, openedFD{fd, name, group})
+    }
+  } else {
+    fmt.Println("Wrong running info, using default FDs.")
   }
 
   // -s send signal to the process that has same config
@@ -568,12 +574,11 @@ func GetRunningProcess(pid int) (p *os.Process) {
 
 func startNewInstance(actionToOldProcess string) {
   path, _ := osext.Executable()
-  cmdString := path + fmt.Sprintf(" -s %s", actionToOldProcess) + fmt.Sprintf(" -c %s", optConfigFile)
+  cmd := exec.Command(path, fmt.Sprintf("-s %s", actionToOldProcess), fmt.Sprintf("-c %s", *optConfigFile))
   if *optRunForeground == true {
-    cmdString += " -f"
+    cmd = exec.Command(path, fmt.Sprintf("-s %s", actionToOldProcess), fmt.Sprintf("-c %s", *optConfigFile), "-f")
   }
-
-  cmd := exec.Command(cmdString)
+  
   fmt.Println("starting cmd: ", cmd.Args)
   if err := cmd.Start(); err != nil {
     fmt.Println("error:", err)
@@ -582,6 +587,7 @@ func startNewInstance(actionToOldProcess string) {
 
 // Dup old process's fd to new one, write FD & name into info file.
 func dupNetFDs() {
+  resetRunningInfoByConf(*optConfigFile, gozdPrefix)
   for k, v := range registeredGOZDHandler {
     fmt.Println(k, v)
     l := v.listener.Listener.(*net.TCPListener) // TODO: Support to net.UnixListener
@@ -589,10 +595,10 @@ func dupNetFDs() {
     if err == nil {
       fd := newFD.Fd()
       name := newFD.Name()
+      fmt.Println("New fd: " + strconv.Itoa(int(fd)) + " Name: " + name + " Group: " + k)
       infoPath := getRunningInfoPathByConf(*optConfigFile, gozdPrefix)
-      resetRunningInfoByConf(*optConfigFile, gozdPrefix)
-      appendFile(infoPath, strconv.Itoa(int(fd)) + "|")
-      appendFile(infoPath, name + "|")
+      appendStr := strconv.Itoa(int(fd)) + "|" + name + "|" + k + "|"
+      appendFile(infoPath, appendStr)
     } else {
       fmt.Println(err)
     }
