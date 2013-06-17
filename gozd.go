@@ -17,7 +17,6 @@ import (
   "strconv"
   "crypto/sha1"
   "runtime"
-  "log"
   "strings"
   "container/list"
   "reflect"
@@ -128,7 +127,7 @@ func startAcceptConn(groupName string, listener *gozdListener) {
     // Wait for a connection.
     conn, err := listener.Accept()
     if err != nil {
-      Log(err.Error())
+      LogErr(err.Error())
       return
     }
     // Handle the connection in a new goroutine.
@@ -143,13 +142,13 @@ func startAcceptConn(groupName string, listener *gozdListener) {
 
 func callHandler(groupName string, params ...interface{}) {
   if _, ok := registeredGOZDHandler[groupName]; !ok {
-    Log(groupName + " does not exist.")
+    LogErr(groupName + " does not exist.")
     return
   }
 
   handler := registeredGOZDHandler[groupName]
   if len(params) != handler.val.Type().NumIn() {
-    Log("Invalid param of[" + groupName + "]" + handler.funcName)
+    LogErr("Invalid param of[" + groupName + "]" + handler.funcName)
     return
   }
   
@@ -197,7 +196,7 @@ func (c *Conn) Close() error {
 func parseConfigFile(filePath string) bool {
   configString, err := readStringFromFile(filePath)
   if err != nil {
-    Log(err.Error())
+    LogErr(err.Error())
     return false
   }
 
@@ -266,12 +265,12 @@ func writeStringToFile(filepath string, contents string) error {
 func truncateFile(filePath string) error {
   f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_TRUNC, 0777)
   if err != nil {
-    Log(err.Error())
+    LogErr(err.Error())
     return err
   }
   err = f.Truncate(0)
   if err != nil {
-    Log(err.Error())
+    LogErr(err.Error())
     return err
   }
 
@@ -280,7 +279,6 @@ func truncateFile(filePath string) error {
 
 func appendFile(filePath string, contents string) error {
   f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0777)
-  //f, err := os.OpenFile(filePath, os.O_CREATE, 777)
   if err != nil {
     return err
   }
@@ -319,7 +317,7 @@ func resetRunningInfoByConf(confPath string, prefix string) {
   str += "|"
   err := appendFile(infoFilepath, str)
   if err != nil {
-    Log(err.Error())
+    LogErr(err.Error())
     return
   }
 }
@@ -327,7 +325,7 @@ func resetRunningInfoByConf(confPath string, prefix string) {
 func getRunningInfoPathByConf(confPath string, prefix string) string {
   confPathAbs, err := filepath.Abs(confPath)
   if err != nil {
-    Log(err.Error())
+    LogErr(err.Error())
     return ""
   }
 
@@ -337,7 +335,7 @@ func getRunningInfoPathByConf(confPath string, prefix string) string {
   infoFilepath := filepath.Join(workPath, "/tmp/", fmt.Sprintf("%v_%x.gozd", prefix, hashSha1.Sum(nil)))
   syscall.Mkdir(workPath+"/tmp/", 0777)
   if err != nil && strings.Contains(err.Error(), "file exists") { // this is a "hack" solution
-    Log(err.Error())
+    LogErr(err.Error())
   }
   Log("confpath: " + confPathAbs)
   Log("Info file path: " + infoFilepath)
@@ -367,7 +365,7 @@ func daemon(nochdir, noclose int) int {
   // fork off the parent process
   ret, ret2, err = syscall.RawSyscall(syscall.SYS_FORK, 0, 0, 0)
   if err != 0 {
-    Log(err.Error())
+    LogErr(err.Error())
     return -1
   }
 
@@ -378,7 +376,7 @@ func daemon(nochdir, noclose int) int {
 
   // failure
   if ret2 < 0 {
-    Log("failure!"+ string(ret2))
+    LogErr("failure!"+ string(ret2))
     os.Exit(-1)
   }
 
@@ -402,7 +400,7 @@ func daemon(nochdir, noclose int) int {
   // create a new SID for the child process
   s_ret, s_errno := syscall.Setsid()
   if s_errno != nil {
-      log.Printf("Error: syscall.Setsid errno: %d", s_errno)
+      LogErr("Error: syscall.Setsid errno: %d", s_errno)
   }
   if s_ret < 0 {
       return -1
@@ -427,7 +425,7 @@ func daemon(nochdir, noclose int) int {
   
 func Daemonize() (c chan int, isSucceed bool) {
   if isDaemonized {
-    Log("Daemon already daemonized.")
+    LogErr("Daemon already daemonized.")
     return c, false
   }
 
@@ -436,7 +434,7 @@ func Daemonize() (c chan int, isSucceed bool) {
 
   // -conf parse config
   if (!parseConfigFile(*optConfigFile)) {
-    Log("Config file read error!")
+    LogErr("Config file read error!")
     usage()
     os.Exit(1)
   }
@@ -459,7 +457,7 @@ func Daemonize() (c chan int, isSucceed bool) {
       openedFDs = append(openedFDs, openedFD{fd, name, group})
     }
   } else {
-    Log("Wrong running info, using default FDs.")
+    LogErr("Wrong running info, using default FDs.")
   }
 
   // -s send signal to the process that has same config
@@ -479,7 +477,7 @@ func Daemonize() (c chan int, isSucceed bool) {
       if (pid != 0) {
         isRunning := IsProcessRunning(pid)
         if isRunning {
-          Log("Daemon already started.")
+          LogErr("Daemon already started.")
           os.Exit(1)
         }
       }
@@ -565,15 +563,21 @@ func GetRunningProcess(pid int) (p *os.Process) {
 
 func startNewInstance(actionToOldProcess string) {
   path, _ := osext.Executable()
-  cmd := exec.Command(path, fmt.Sprintf("-s %s", actionToOldProcess), fmt.Sprintf("-c %s", *optConfigFile))
+  args := make([]string, 0)
+  args = append(args, fmt.Sprintf("-s %s", actionToOldProcess))
+  args = append(args, fmt.Sprintf("-c %s", *optConfigFile))
   if *optRunForeground == true {
-    cmd = exec.Command(path, fmt.Sprintf("-s %s", actionToOldProcess), fmt.Sprintf("-c %s", *optConfigFile), "-f")
+    args = append(args, "-f")
   }
 
-  
+  if *optVerbose == true {
+    args = append(args, "-v")
+  }
+
+  cmd := exec.Command(path, args...)
   Log("starting cmd: %v", cmd.Args)
   if err := cmd.Start(); err != nil {
-    Log(err.Error())
+    LogErr(err.Error())
   }
 }
 
@@ -592,7 +596,7 @@ func dupNetFDs() {
       appendStr := strconv.Itoa(int(fd)) + "|" + name + "|" + k + "|"
       appendFile(infoPath, appendStr)
     } else {
-      Log(err.Error())
+      LogErr(err.Error())
     }
   }
 }
@@ -621,6 +625,33 @@ func Log(format string, args ...interface{}) {
   hour, minute, second := now.Clock()
   time_str := fmt.Sprintf("[GOZD][%d-%d-%d %d:%d:%d]", year, month, day, hour, minute, second)
   
-  pidStr := fmt.Sprintf("[%d] ", runningPID)
-  fmt.Printf(time_str + pidStr + format + "\n", args...)
+  pidStr := fmt.Sprintf("[%d]", runningPID)
+  pc, _, _, _ := runtime.Caller(1)
+  name := runtime.FuncForPC(pc).Name()
+  names := strings.Split(name, ".")
+  callerStr := "[" + names[len(names)-1] + "] "
+  fmt.Printf(time_str + pidStr + callerStr + format + "\n", args...)
+}
+
+func LogErr(format string, args ...interface{}) {
+  now := time.Now()
+  year, month, day := now.Date()
+  hour, minute, second := now.Clock()
+  time_str := fmt.Sprintf("[GOZDERR][%d-%d-%d %d:%d:%d]", year, month, day, hour, minute, second)
+  
+  var fileStr, nameStr string
+  pidStr := fmt.Sprintf("[%d]", runningPID)
+  pc, _, _, _ := runtime.Caller(1)
+  file, line := runtime.FuncForPC(pc).FileLine(pc)
+  files := strings.Split(file, "/")
+  if len(files) > 0 {
+    fileStr = files[len(files)-1]
+  }
+  name := runtime.FuncForPC(pc).Name()
+  names := strings.Split(name, ".")
+  if len(names) > 0 {
+    nameStr = names[len(names)-1]
+  }
+  callerStr := "[" + nameStr + " " + fileStr + ":" + strconv.Itoa(line) + "] "
+  fmt.Printf(time_str + pidStr + callerStr + format + "\n", args...)
 }
