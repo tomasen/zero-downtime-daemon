@@ -62,7 +62,7 @@ var (
   openedFDs = []openedFD{}
   gozdPrefix = "gozerodown" // used for SHA1 hash, change it with different daemons
   isDaemonized = false
-  runningPID = os.Getpid()
+  runningPID = -1
 )
 
 // caller's infomation & channel
@@ -194,7 +194,8 @@ func (c *Conn) Close() error {
 }
 
 func parseConfigFile(filePath string) bool {
-  configString, err := readStringFromFile(filePath)
+  path, _ := filepath.Abs(filePath)
+  configString, err := readStringFromFile(path)
   if err != nil {
     LogErr(err.Error())
     return false
@@ -301,7 +302,7 @@ func getRunningInfoByConf(confPath string, prefix string) ([]string, error) {
 
   infoString, err := readStringFromFile(infoFilepath)
   Log("Info Filepath: " + infoFilepath)
-  Log("Info string: "+ infoString)
+  Log("Info string: ["+ infoString + "]")
   if (err != nil) {
     return []string{}, err
   }
@@ -424,6 +425,8 @@ func daemon(nochdir, noclose int) int {
 }
   
 func Daemonize() (c chan int, isSucceed bool) {
+  runningPID = os.Getpid()
+
   if isDaemonized {
     LogErr("Daemon already daemonized.")
     return c, false
@@ -449,18 +452,18 @@ func Daemonize() (c chan int, isSucceed bool) {
     pid, _ = strconv.Atoi(infos[0])
   }
 
-  if infoCnt % 3 == 1 { // Info count should be groupCount * 3 + 1(for PID)
-    for i := 1; i < infoCnt; i += 3 {
+  // Info count should be groupCount * 3 + 1(for PID) + 1
+  // (for strconv.Split() will split 1 additional element at the end)
+  if infoCnt % 3 == 2 && infoCnt >= 5 {
+    for i := 1; i < infoCnt - 1; i += 3 {
       fd, _ := strconv.Atoi(infos[i])
       name := infos[i+1]
       group := infos[i+2]
       openedFDs = append(openedFDs, openedFD{fd, name, group})
     }
-  } else {
-    LogErr("Wrong running info, using default FDs.")
   }
-
-  // -s send signal to the process that has same config
+  
+  // send signal to the process that has same config
   switch (*optSendSignal) {
     case "stop":
     if (pid != 0) {
@@ -490,7 +493,6 @@ func Daemonize() (c chan int, isSucceed bool) {
         if isRunning {
           p := GetRunningProcess(pid)
           p.Signal(syscall.SIGTERM)
-          os.Exit(0)
         }
       }
       startDaemon()
@@ -564,8 +566,8 @@ func GetRunningProcess(pid int) (p *os.Process) {
 func startNewInstance(actionToOldProcess string) {
   path, _ := osext.Executable()
   args := make([]string, 0)
-  args = append(args, fmt.Sprintf("-s %s", actionToOldProcess))
-  args = append(args, fmt.Sprintf("-c %s", *optConfigFile))
+  args = append(args, fmt.Sprintf("-s=%s", actionToOldProcess))
+  args = append(args, fmt.Sprintf("-c=%s", *optConfigFile))
   if *optRunForeground == true {
     args = append(args, "-f")
   }
@@ -575,8 +577,11 @@ func startNewInstance(actionToOldProcess string) {
   }
 
   cmd := exec.Command(path, args...)
-  Log("starting cmd: %v", cmd.Args)
-  if err := cmd.Start(); err != nil {
+  cmd.Stdout = os.Stdout
+  cmd.Stderr = os.Stderr
+  err := cmd.Start()
+  
+  if err != nil {
     LogErr(err.Error())
   }
 }
