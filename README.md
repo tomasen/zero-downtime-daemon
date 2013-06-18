@@ -11,6 +11,7 @@ There are sample `TCP/HTTP/FCGI` programs in examples:
     )
     
     func serveTCP(conn gozd.Conn) {
+      // your own TCP handler
     }
     
     func main() {
@@ -42,7 +43,7 @@ Once you build your program based on gozd, you can use following command line ar
 
     -f Running foreground for debug, recommended if you are using GDB or other debuggers.
 
-    -v "Show GOZD log."
+    -v Show GOZD log.
 
 > kill -HUP <pid>  send signal to restart daemon's latest binary, without break current connections and services.
 

@@ -53,13 +53,13 @@ type openedFD struct {
 
 // configuration
 var (
-  optSendSignal = flag.String("s", "", "Send signal to old process: <stop, quit, reopen, reload>.")
+  optSendSignal = flag.String("s", "", "Send signal to old process: <start, stop, quit, reopen, reload>.")
   optConfigFile = flag.String("c", "", "Set configuration file path." )
   optRunForeground = flag.Bool("f", false, "Running in foreground for debug.")
   optVerbose = flag.Bool("v", false, "Show GOZD log.")
   optHelp = flag.Bool("h", false, "This help")
   optGroups = make(map[string]*configGroup)
-  openedFDs = []openedFD{}
+  openedFDs = make(map[string]*openedFD) // key = group name, this ONLY records FDs opened by old process, should be empty if using "-s start"
   gozdPrefix = "gozerodown" // used for SHA1 hash, change it with different daemons
   isDaemonized = false
   runningPID = -1
@@ -72,17 +72,19 @@ var (
   mainRoutineCommChan = make(chan int, 1)
 )
 
-func newGOZDListener(netType, laddr string) (*gozdListener, error) {
-  openedCnt := len(registeredGOZDHandler)
+func newGOZDListener(netType, laddr, groupName string) (*gozdListener, error) {
   var l net.Listener
   var err error
-  if openedCnt < len(openedFDs) {
-    Log("Listen with opened FDs")
-    f := os.NewFile(uintptr(openedFDs[openedCnt].fd), openedFDs[openedCnt].name)
+
+  // find if already exists by groupname
+  if openedFDs[groupName] != nil {
+    Log("Listen with opened FDs: [%d][%s][%s]", openedFDs[groupName].fd, openedFDs[groupName].name, openedFDs[groupName].group)
+    f := os.NewFile(uintptr(openedFDs[groupName].fd), openedFDs[groupName].name)
     l, err = net.FileListener(f)
   } else {
     l, err = net.Listen(netType, laddr)
   }
+
   l_gozd := new(gozdListener)
   l_gozd.Listener = l
   return l_gozd, err
@@ -103,7 +105,7 @@ func RegistHandler(groupName, functionName string, fn interface{}) (err error) {
       return
     }
 
-    l, errListen := newGOZDListener(optGroups[groupName].mode, optGroups[groupName].listen)
+    l, errListen := newGOZDListener(optGroups[groupName].mode, optGroups[groupName].listen, groupName)
     if errListen != nil {
       err = errListen
       return
@@ -453,13 +455,16 @@ func Daemonize() (c chan int, isSucceed bool) {
   }
 
   // Info count should be groupCount * 3 + 1(for PID) + 1
-  // (for strconv.Split() will split 1 additional element at the end)
+  // (for strings.Split() will split 1 additional element at the end)
   if infoCnt % 3 == 2 && infoCnt >= 5 {
     for i := 1; i < infoCnt - 1; i += 3 {
       fd, _ := strconv.Atoi(infos[i])
-      name := infos[i+1]
+      openFD := new(openedFD)
+      openFD.fd = fd
+      openFD.name = infos[i+1]
       group := infos[i+2]
-      openedFDs = append(openedFDs, openedFD{fd, name, group})
+      openFD.group = group
+      openedFDs[group] = openFD
     }
   }
   
@@ -528,7 +533,7 @@ func signalHandler(cSignal chan os.Signal) {
     switch (s) {
       case syscall.SIGHUP, syscall.SIGUSR2:
         // upgrade, reopen
-        // 1. write running process FDs into info config(*.gozd) before starting (Unclear: Need dup() or not?)
+        // 1. write running process FDs into info config(*.gozd) before starting
         // 2. stop port listening
         // 3. using exec.Command() to start a new instance
         Log("Action: PREPARE TO STOP")
@@ -592,9 +597,10 @@ func dupNetFDs() {
   for k, v := range registeredGOZDHandler {
     Log(k + "|%v", v)
     l := v.listener.Listener.(*net.TCPListener) // TODO: Support to net.UnixListener
-    newFD, err := l.File() // net.Listener.File() call dup() to return a new FD, no need to create another later.
+    newFD, err := l.File() // net.Listener.File() call dup() to return a new FD
     if err == nil {
       fd := newFD.Fd()
+      noCloseOnExec(int(fd))
       name := newFD.Name()
       Log("New fd: " + strconv.Itoa(int(fd)) + " Name: " + name + " Group: " + k)
       infoPath := getRunningInfoPathByConf(*optConfigFile, gozdPrefix)
@@ -606,10 +612,36 @@ func dupNetFDs() {
   }
 }
 
+func noCloseOnExec(fd int) {
+  flag, _ := fcntl(int(fd), syscall.F_GETFD, 0)
+  // clear FD_CLOEXEC bit, read man 2 fcntl for details
+  flag = flag >> 1
+  flag = flag << 1
+  fcntl(int(fd), syscall.F_SETFD, flag)
+}
+
+// These are here because there is no API in syscall for turning OFF
+// close-on-exec (yet).
+func fcntl(fd int, cmd int, arg int) (val int, err error) {
+  if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+    LogErr("Function fcntl has not been tested on other platforms than linux & darwin.")
+  }
+
+  r0, _, e1 := syscall.Syscall(syscall.SYS_FCNTL, uintptr(fd), uintptr(cmd), uintptr(arg))
+  val = int(r0)
+  if e1 != 0 {
+    err = e1
+  }
+  return
+}
+
 func stopListening() {
   for _, v := range registeredGOZDHandler {
     l := v.listener.Listener
-    l.Close()
+    err := l.Close()
+    if err != nil {
+      LogErr(err.Error())
+    }
   }
 }
 
