@@ -1,5 +1,10 @@
 `gozd`, is a configurable zero downtime daemon(TCP/HTTP/FCGI) framework write in golang.
 
+##How to install
+
+    go get -u bitbucket.org/kardianos/osext
+    go get -u bitbucket.org/PinIdea/go-zero-downtime-daemon
+
 ##Sample Code & Integration
 
 There are sample `TCP/HTTP/FCGI` programs in examples:
@@ -37,7 +42,7 @@ These are the major intergration steps:
 
 Once you build your program based on gozd, you can use following command line arguments to start the daemon and other operations.  A daemon configuration file MUST be prepared for your program.
 
-    -s Send signal to old process: <stop, quit, reopen, reload>.
+    -s Send signal to old process: <start, stop, quit, reopen, reload>.
 
     -c Set configuration file path.
 
@@ -62,3 +67,19 @@ Once you build your program based on gozd, you can use following command line ar
     listen   [ip|port|unix socket]
     key      <path of ssl key file>
     cert     <path of ssl cert file>
+
+##How to test
+
+Once you have done intergration, do these steps to test if daemon is working properly:
+
+1. Use -v & -f to run, make sure no [GOZDERR] message displayed. Without -f, all output of your app will be redirected to `/dev/null` by default.
+
+2. Connect to your app, the client should take a keep-alive connection with port or socket defined in config file.
+
+3. Use `kill -HUP <your app's pid>` while the client should not be disconnected.
+
+4. Start another client, do step 2 again.
+
+5. Use `ps aux | grep <your app name>` or any other tool you like, 2 process of your app should running.
+
+6. If at least one of your app process is already running, using `-s start` to start another instance should NOT work.
