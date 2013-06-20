@@ -50,6 +50,11 @@ func newGOZDListener(netType, laddr, groupName string) (*gozdListener, error) {
     Log("Listen with opened FDs: [%d][%s][%s]", openedFDs[groupName].fd, openedFDs[groupName].name, groupName)
     f := os.NewFile(uintptr(openedFDs[groupName].fd), openedFDs[groupName].name)
     l, err = net.FileListener(f)
+    if err != nil {
+      LogErr(err.Error())
+      LogErr("Using net.Listen() instead")
+      l, err = net.Listen(netType, laddr)
+    }
   } else {
     l, err = net.Listen(netType, laddr)
   }

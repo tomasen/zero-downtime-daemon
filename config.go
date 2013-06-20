@@ -31,7 +31,6 @@ package gozd
 
 import (
   "flag"
-  "path/filepath"
   "strings"
   "io"
   "io/ioutil"
@@ -55,8 +54,7 @@ var (
 )
 
 func parseConfigFile(filePath string) bool {
-  path, _ := filepath.Abs(filePath)
-  configString, err := readStringFromFile(path)
+  configString, err := readStringFromFile(filePath)
   if err != nil {
     LogErr(err.Error())
     return false
@@ -180,21 +178,12 @@ func resetRunningInfoByConf(confPath string, prefix string) {
 }
 
 func getRunningInfoPathByConf(confPath string, prefix string) string {
-  confPathAbs, err := filepath.Abs(confPath)
-  if err != nil {
-    LogErr(err.Error())
-    return ""
-  }
-
   hashSha1 := sha1.New()
-  io.WriteString(hashSha1, confPathAbs)
-  workPath, _ := filepath.Abs("")
-  infoFilepath := filepath.Join(workPath, "/tmp/", fmt.Sprintf("%v_%x.gozd", prefix, hashSha1.Sum(nil)))
-  syscall.Mkdir(workPath+"/tmp/", 0777)
-  if err != nil && strings.Contains(err.Error(), "file exists") { // this is a "hack" solution
-    LogErr(err.Error())
-  }
-  Log("confpath: " + confPathAbs)
+  io.WriteString(hashSha1, confPath)
+  infoFilepath := gozdWorkPath + "/tmp/" + fmt.Sprintf("%v_%x.gozd", prefix, hashSha1.Sum(nil))
+  syscall.Mkdir(gozdWorkPath + "/tmp/", 0777)
+
+  Log("confpath: " + confPath)
   Log("Info file path: " + infoFilepath)
   return infoFilepath
 }

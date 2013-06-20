@@ -44,6 +44,7 @@ import (
   "container/list"
   "time"
   "errors"
+  "path/filepath"
 )
 
 // caller's infomation & channel
@@ -56,19 +57,27 @@ var (
 var (
   isDaemonized = false
   runningPID = -1
+  gozdWorkPath = ""
 )
 
-
 func Daemonize() (c chan int, isSucceed bool) {
+  // parse arguments
+  flag.Parse()
+  
   runningPID = os.Getpid()
-
+  var err error
+  gozdWorkPath, err = filepath.Abs("")
+  if err != nil {
+    LogErr(err.Error())
+  }
+  Log("asdfasdfadsfadsfdsafasfsadfasfsadfasdf")
+  Log("gozdWorkPath: " + gozdWorkPath)
   if isDaemonized {
     LogErr("Daemon already daemonized.")
     return c, false
   }
 
-  // parse arguments
-  flag.Parse()
+  *optConfigFile, _ = filepath.Abs(*optConfigFile)
 
   // -conf parse config
   if (!parseConfigFile(*optConfigFile)) {
@@ -208,6 +217,7 @@ func usage() {
 // This function is the implementation of daemon() in standard C library.
 // It forks a child process which copys itself, then terminate itself to make child's PPID = 1
 // For more detail, run "man 3 daemon"
+// "nochdir" is deprecated since it will cause filepath.Abs() get wrong workpath after fork/exec()
 func daemon(nochdir, noclose int) int {
   var ret, ret2 uintptr
   var err syscall.Errno
@@ -232,7 +242,8 @@ func daemon(nochdir, noclose int) int {
     return -1
   }
 
-  pid_after_fork := strconv.Itoa(syscall.Getpid())
+  runningPID = os.Getpid()
+  pid_after_fork := strconv.Itoa(os.Getpid())
   ppid_after_fork := strconv.Itoa(syscall.Getppid())
   Log("PID after fork: " + pid_after_fork)
   Log("PPID after fork: " + ppid_after_fork)
@@ -245,7 +256,19 @@ func daemon(nochdir, noclose int) int {
 
   // handle exception for darwin
   if darwin && ret2 == 1 {
-      ret = 0
+    ret = 0
+  }
+
+  if noclose == 0 && *optRunForeground == false {
+      f, e := os.OpenFile("/dev/null", os.O_RDWR, 0)
+      if e == nil {
+        fd := f.Fd()
+        syscall.Dup2(int(fd), int(os.Stdin.Fd()))
+        syscall.Dup2(int(fd), int(os.Stdout.Fd()))
+        syscall.Dup2(int(fd), int(os.Stderr.Fd()))
+      } else {
+        LogErr("Dup to /dev/null error!" + err.Error())
+      }
   }
 
   // if we got a good PID, then we call exit the parent process.
@@ -253,10 +276,7 @@ func daemon(nochdir, noclose int) int {
     Log("Exit parent process PID: " + pid_after_fork)
     os.Exit(0)
   }
-
-  Log("PID:" + pid_after_fork + " after parent process exited: " + strconv.Itoa(syscall.Getpid()))
-  Log("PPID:" + ppid_after_fork + " after parent process exited: " + strconv.Itoa(syscall.Getppid()))
-
+  
   /* Change the file mode mask */
   _ = syscall.Umask(0)
 
@@ -266,22 +286,12 @@ func daemon(nochdir, noclose int) int {
       LogErr("Error: syscall.Setsid errno: %d", s_errno)
   }
   if s_ret < 0 {
-      return -1
+    LogErr("Set sid failed %d", s_ret)
+    return -1
   }
 
-  if nochdir == 0 {
-      os.Chdir("/")
-  }
-
-  if noclose == 0 && *optRunForeground == false {
-      f, e := os.OpenFile("/dev/null", os.O_RDWR, 0)
-      if e == nil {
-          fd := f.Fd()
-          syscall.Dup2(int(fd), int(os.Stdin.Fd()))
-          syscall.Dup2(int(fd), int(os.Stdout.Fd()))
-          syscall.Dup2(int(fd), int(os.Stderr.Fd()))
-      }
-  }
+  Log("PID:" + pid_after_fork + " after parent process exited: " + strconv.Itoa(syscall.Getpid()))
+  Log("PPID:" + ppid_after_fork + " after parent process exited: " + strconv.Itoa(syscall.Getppid()))
 
   return 0
 }
