@@ -45,6 +45,13 @@ func main() {
     gozd.LogErr(err.Error())
     os.Exit(1)
   }
+
+  err = gozd.RegistHandler("Group2", "serveTCP", serveTCP) // regist your own handle function, parameters MUST contain a "gozd.Conn" type.
+  if err != nil {
+    gozd.LogErr(err.Error())
+    os.Exit(1)
+  }
+
   waitTillFinish(daemonChan) // wait till daemon send a exit signal
 }
 func waitTillFinish(daemonChan chan int) {
