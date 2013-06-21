@@ -45,11 +45,11 @@ import (
 var (
   optSendSignal = flag.String("s", "", "Send signal to old process: <start, stop, quit, reopen, reload>.")
   optConfigFile = flag.String("c", "", "Set configuration file path." )
+  optInheritFDName = flag.String("i", "", "Send inherited FD name to child process, don't use this unless you know what your are doing.")
   optRunForeground = flag.Bool("f", false, "Running in foreground for debug.")
   optVerbose = flag.Bool("v", false, "Show GOZD log.")
   optHelp = flag.Bool("h", false, "This help")
   optGroups = make(map[string]*configGroup)
-  openedFDs = make(map[string]*openedFD) // key = group name, this ONLY records FDs opened by old process, should be empty if using "-s start"
   gozdPrefix = "gozerodown" // used for SHA1 hash, change it with different daemons
 )
 
