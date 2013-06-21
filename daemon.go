@@ -44,6 +44,7 @@ import (
   "time"
   "errors"
   "path/filepath"
+  "strings"
 )
 
 // caller's infomation & channel
@@ -51,6 +52,11 @@ var (
   openedGOZDConns = list.New()
   registeredGOZDHandler = make(map[string]*gozdHandler) // key = group name used by specific user defined handler in config file
   mainRoutineCommChan = make(chan int, 1)
+)
+
+var (
+  inheritedFDName []string
+  inheritedFDCnt = 3 // if inherit FD from parent, use this count instead
 )
 
 var (
@@ -94,17 +100,8 @@ func Daemonize() (c chan int, isSucceed bool) {
     pid, _ = strconv.Atoi(infos[0])
   }
 
-  // Info count should be groupCount * 3 + 1(for PID) + 1
-  // (for strings.Split() will split 1 additional element at the end)
-  if infoCnt % 3 == 2 && infoCnt >= 5 {
-    for i := 1; i < infoCnt - 1; i += 3 {
-      fd, _ := strconv.Atoi(infos[i])
-      openFD := new(openedFD)
-      openFD.fd = fd
-      openFD.name = infos[i+1]
-      group := infos[i+2]
-      openedFDs[group] = openFD
-    }
+  if *optInheritFDName != "" {
+    inheritedFDName = strings.Split(*optInheritFDName, ",")
   }
   
   // send signal to the process that has same config
@@ -310,7 +307,7 @@ func startAcceptConn(groupName string, listener *gozdListener) {
   }  
 }
 
-func startNewInstance(actionToOldProcess string, newFDs map[string]*os.File) {
+func startNewInstance(actionToOldProcess string, newFDs []*os.File) {
   exec_path, _ := exec.LookPath(os.Args[0])
   path, _ := filepath.Abs(exec_path)
   args := make([]string, 0)
@@ -323,17 +320,21 @@ func startNewInstance(actionToOldProcess string, newFDs map[string]*os.File) {
   if *optVerbose == true {
     args = append(args, "-v")
   }
-  
-  openedFDs := []*os.File{}
-  for _, v := range newFDs {
-    openedFDs = append(openedFDs, v)
-    Log("FD: %d, Name: %s", v.Fd(), v.Name())
-  }
 
+  argFDStr := ""
+  for i := 0; i < len(newFDs); i++ {
+    v := newFDs[i]
+    argFDStr += v.Name()
+    if i < len(newFDs) - 1 {
+      argFDStr += ","
+    }
+  }
+  args = append(args, fmt.Sprintf("-i=%s", argFDStr))
+  
   cmd := exec.Command(path, args...)
   cmd.Stdout = os.Stdout
   cmd.Stderr = os.Stderr
-  cmd.ExtraFiles = openedFDs
+  cmd.ExtraFiles = newFDs
   
   err := cmd.Start()
   if err != nil {
@@ -395,49 +396,20 @@ func getRunningProcess(pid int) (p *os.Process) {
 }
 
 // Dup old process's fd to new one, write FD & name into info file.
-func dupNetFDs() (newFDs map[string]*os.File) {
-  newFDs = make(map[string]*os.File)
+func dupNetFDs() (newFDs []*os.File) {
+  newFDs = []*os.File{}
   resetRunningInfoByConf(*optConfigFile, gozdPrefix)
   for k, v := range registeredGOZDHandler {
     Log(k + "|%v", v)
     l := v.listener.Listener.(*net.TCPListener) // TODO: Support to net.UnixListener
     newFD, err := l.File() // net.TCPListener.File() call dup() to return a new FD
     if err == nil {
-      fd := newFD.Fd()
-      //noCloseOnExec(int(fd))
-      name := newFD.Name()
-      Log("New fd: " + strconv.Itoa(int(fd)) + " Name: " + name + " Group: " + k)
-      infoPath := getRunningInfoPathByConf(*optConfigFile, gozdPrefix)
-      appendStr := strconv.Itoa(int(fd)) + "|" + name + "|" + k + "|"
-      appendFile(infoPath, appendStr)
-      newFDs[k] = newFD
+      newFDs = append(newFDs, newFD)
     } else {
       LogErr(err.Error())
     }
   }
   return newFDs
-}
-
-func noCloseOnExec(fd int) {
-  flag, _ := fcntl(int(fd), syscall.F_GETFD, 0)
-  // clear FD_CLOEXEC bit, read man 2 fcntl for details
-  flag = flag >> 1
-  flag = flag << 1
-  fcntl(int(fd), syscall.F_SETFD, flag)
-}
-
-func fcntl(fd int, cmd int, arg int) (val int, err error) {
-  if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
-    LogErr("Not avaliable outside linux & darwin system.")
-    os.Exit(1)
-  }
-
-  r0, _, e1 := syscall.Syscall(syscall.SYS_FCNTL, uintptr(fd), uintptr(cmd), uintptr(arg))
-  val = int(r0)
-  if e1 != 0 {
-    err = e1
-  }
-  return
 }
 
 func waitTillAllConnClosed(c chan int) {

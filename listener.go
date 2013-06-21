@@ -46,15 +46,17 @@ func newGOZDListener(netType, laddr, groupName string) (*gozdListener, error) {
   var err error
 
   // find if already exists by groupname
-  if openedFDs[groupName] != nil {
-    Log("Listen with opened FDs: [%d][%s][%s]", openedFDs[groupName].fd, openedFDs[groupName].name, groupName)
-    f := os.NewFile(uintptr(openedFDs[groupName].fd), openedFDs[groupName].name)
+  if (*optSendSignal == "reopen" || *optSendSignal == "reload") && inheritedFDCnt-3 < len(inheritedFDName) {
+    // using inherited FD instead.
+    Log("Listen with inherited FD: [%d][%s][%s:%s]", inheritedFDCnt, groupName, netType, laddr)
+    f := os.NewFile(uintptr(inheritedFDCnt), inheritedFDName[inheritedFDCnt-3])
     l, err = net.FileListener(f)
     if err != nil {
       LogErr(err.Error())
       LogErr("Using net.Listen() instead")
       l, err = net.Listen(netType, laddr)
     }
+    inheritedFDCnt++
   } else {
     l, err = net.Listen(netType, laddr)
   }
