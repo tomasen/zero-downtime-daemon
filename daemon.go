@@ -310,7 +310,7 @@ func startAcceptConn(groupName string, listener *gozdListener) {
   }  
 }
 
-func startNewInstance(actionToOldProcess string) {
+func startNewInstance(actionToOldProcess string, newFDs map[string]*os.File) {
   exec_path, _ := exec.LookPath(os.Args[0])
   path, _ := filepath.Abs(exec_path)
   args := make([]string, 0)
@@ -323,12 +323,19 @@ func startNewInstance(actionToOldProcess string) {
   if *optVerbose == true {
     args = append(args, "-v")
   }
+  
+  openedFDs := []*os.File{}
+  for _, v := range newFDs {
+    openedFDs = append(openedFDs, v)
+    Log("FD: %d, Name: %s", v.Fd(), v.Name())
+  }
 
   cmd := exec.Command(path, args...)
   cmd.Stdout = os.Stdout
   cmd.Stderr = os.Stderr
-  err := cmd.Start()
+  cmd.ExtraFiles = openedFDs
   
+  err := cmd.Start()
   if err != nil {
     LogErr(err.Error())
   }
@@ -366,9 +373,9 @@ func signalHandler(cSignal chan os.Signal) {
         // 2. stop port listening
         // 3. using exec.Command() to start a new instance
         Log("Action: PREPARE TO STOP")
-        dupNetFDs()
+        newFDs := dupNetFDs()
         stopListening()
-        startNewInstance("reopen")
+        startNewInstance("reopen", newFDs)
       case syscall.SIGTERM, syscall.SIGINT:
         Log("Action: CLOSE")
         // wait all clients disconnect
@@ -388,24 +395,27 @@ func getRunningProcess(pid int) (p *os.Process) {
 }
 
 // Dup old process's fd to new one, write FD & name into info file.
-func dupNetFDs() {
+func dupNetFDs() (newFDs map[string]*os.File) {
+  newFDs = make(map[string]*os.File)
   resetRunningInfoByConf(*optConfigFile, gozdPrefix)
   for k, v := range registeredGOZDHandler {
     Log(k + "|%v", v)
     l := v.listener.Listener.(*net.TCPListener) // TODO: Support to net.UnixListener
-    newFD, err := l.File() // net.Listener.File() call dup() to return a new FD
+    newFD, err := l.File() // net.TCPListener.File() call dup() to return a new FD
     if err == nil {
       fd := newFD.Fd()
-      noCloseOnExec(int(fd))
+      //noCloseOnExec(int(fd))
       name := newFD.Name()
       Log("New fd: " + strconv.Itoa(int(fd)) + " Name: " + name + " Group: " + k)
       infoPath := getRunningInfoPathByConf(*optConfigFile, gozdPrefix)
       appendStr := strconv.Itoa(int(fd)) + "|" + name + "|" + k + "|"
       appendFile(infoPath, appendStr)
+      newFDs[k] = newFD
     } else {
       LogErr(err.Error())
     }
   }
+  return newFDs
 }
 
 func noCloseOnExec(fd int) {
