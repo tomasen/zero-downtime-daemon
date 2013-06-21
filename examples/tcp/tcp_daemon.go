@@ -1,7 +1,8 @@
 // Use of this source code is governed by a BSD-style license
 package main
 import (
-  "bitbucket.org/PinIdea/go-zero-downtime-daemon"
+  //"bitbucket.org/PinIdea/go-zero-downtime-daemon"
+  "../../"
   "fmt"
   "time"
   "syscall"
@@ -48,5 +49,6 @@ func main() {
 }
 func waitTillFinish(daemonChan chan int) {
   code := <- daemonChan
+  gozd.Log("Exit tcp_daemon.")
   os.Exit(code)
 }

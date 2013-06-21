@@ -120,7 +120,6 @@ func writeStringToFile(filepath string, contents string) error {
 func truncateFile(filePath string) error {
   f, err := os.OpenFile(filePath, os.O_WRONLY|os.O_TRUNC, 0777)
   if err != nil {
-    LogErr(err.Error())
     return err
   }
   err = f.Truncate(0)

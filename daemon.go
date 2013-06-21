@@ -35,7 +35,6 @@ import (
   "syscall"
   "runtime"
   "os"
-  "bitbucket.org/kardianos/osext"
   "strconv"
   "fmt"
   "os/signal"
@@ -70,7 +69,6 @@ func Daemonize() (c chan int, isSucceed bool) {
   if err != nil {
     LogErr(err.Error())
   }
-  Log("asdfasdfadsfadsfdsafasfsadfasfsadfasdf")
   Log("gozdWorkPath: " + gozdWorkPath)
   if isDaemonized {
     LogErr("Daemon already daemonized.")
@@ -313,7 +311,8 @@ func startAcceptConn(groupName string, listener *gozdListener) {
 }
 
 func startNewInstance(actionToOldProcess string) {
-  path, _ := osext.Executable()
+  exec_path, _ := exec.LookPath(os.Args[0])
+  path, _ := filepath.Abs(exec_path)
   args := make([]string, 0)
   args = append(args, fmt.Sprintf("-s=%s", actionToOldProcess))
   args = append(args, fmt.Sprintf("-c=%s", *optConfigFile))
@@ -435,6 +434,7 @@ func waitTillAllConnClosed(c chan int) {
   for openedGOZDConns.Len() != 0 {
     time.Sleep(1 * time.Second)
   }
+  Log("All conn closed.")
   c <- 1
 }
 
