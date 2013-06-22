@@ -307,7 +307,7 @@ func startAcceptConn(groupName string, listener *gozdListener) {
   }  
 }
 
-func startNewInstance(actionToOldProcess string, newFDs []*os.File) {
+func startNewInstance(actionToOldProcess string, newFDs []*os.File) (*os.Process) {
   exec_path, _ := exec.LookPath(os.Args[0])
   path, _ := filepath.Abs(exec_path)
   args := make([]string, 0)
@@ -339,7 +339,10 @@ func startNewInstance(actionToOldProcess string, newFDs []*os.File) {
   err := cmd.Start()
   if err != nil {
     LogErr(err.Error())
+    return nil
   }
+
+  return cmd.Process
 }
 
 func callHandler(groupName string, params ...interface{}) {
@@ -376,7 +379,8 @@ func signalHandler(cSignal chan os.Signal) {
         Log("Action: PREPARE TO STOP")
         newFDs := dupNetFDs()
         stopListening()
-        startNewInstance("reopen", newFDs)
+        child := startNewInstance("reopen", newFDs)
+        handleChildExit(child)
       case syscall.SIGTERM, syscall.SIGINT:
         Log("Action: CLOSE")
         // wait all clients disconnect
@@ -420,3 +424,21 @@ func waitTillAllConnClosed(c chan int) {
   c <- 1
 }
 
+// If not running foreground, parent should handle child process's exit status after child call Fork(), or a zombie process will occour.
+// Notice: If running foreground, zombie process will occour due to program's main logic. This is not an issue.
+func handleChildExit(process *os.Process) {
+  if *optRunForeground == true || process == nil {
+    return
+  }
+
+  state, err := process.Wait()
+  if err != nil {
+    LogErr(err.Error())
+  } else {
+    if state.Exited() == true {
+      Log("Child %d exited", state.Pid())
+    } else {
+      LogErr("Child %d not exited", state.Pid())
+    }
+  }
+}
