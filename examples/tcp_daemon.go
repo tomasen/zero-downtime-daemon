@@ -6,7 +6,7 @@ import (
   "log"
   "os"
   "fmt"
-  "../../"
+  "../"
 )
 
 func serveTCP(conn net.Conn) {
@@ -45,7 +45,6 @@ func main() {
             Hash:"tcp_example",
             Signal:"",
             Logfile:os.TempDir()+"tcp_daemon.log", 
-            // Logfile:"/var/log/tcp_daemon.log", 
             Servers:map[string]gozd.Conf{
               "sock":gozd.Conf{
                 Network:"unix",
