@@ -42,8 +42,8 @@ Basic intergration steps are:
 ##TODO
 
 1. more examples to cover usage of:
-  - config file
-  - command arguments
-  - fcgi server
-  - http server
+    + config file
+    + command arguments
+    + fcgi server
+    + http server
 2. test cases
