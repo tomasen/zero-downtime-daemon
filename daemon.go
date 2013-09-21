@@ -1,444 +1,409 @@
 /*
- * Copyright (c) 2013, PinIdea Co. Ltd.
- * Tomasen <tomasen@gmail.com> & Reck Hou <reckhou@gmail.com>
- * All rights reserved.
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *     * Redistributions of source code must retain the above copyright
- *       notice, this list of conditions and the following disclaimer.
- *     * Redistributions in binary form must reproduce the above copyright
- *       notice, this list of conditions and the following disclaimer in the
- *       documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS "AS IS" AND ANY
- * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
- * WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
- * DISCLAIMED. IN NO EVENT SHALL THE COMPANY AND CONTRIBUTORS BE LIABLE FOR ANY
- * DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
- * LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
- * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
- * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+* Copyright (c) 2013, PinIdea Co. Ltd.
+* Tomasen <tomasen@gmail.com> & Reck Hou <reckhou@gmail.com>
+* All rights reserved.
+* Redistribution and use in source and binary forms, with or without
+* modification, are permitted provided that the following conditions are met:
+*
+*     * Redistributions of source code must retain the above copyright
+*       notice, this list of conditions and the following disclaimer.
+*     * Redistributions in binary form must reproduce the above copyright
+*       notice, this list of conditions and the following disclaimer in the
+*       documentation and/or other materials provided with the distribution.
+*
+* THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS "AS IS" AND ANY
+* EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+* WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+* DISCLAIMED. IN NO EVENT SHALL THE COMPANY AND CONTRIBUTORS BE LIABLE FOR ANY
+* DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+* (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+* LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+* ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+* (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+* SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
 
 /* The idea is came from nginx and this post: http://blog.nella.org/?p=879
- * and code here: http://code.google.com/p/jra-go/source/browse/#hg%2Fcmd%2Fupgradable
- */
+* and code here: http://code.google.com/p/jra-go/source/browse/#hg%2Fcmd%2Fupgradable
+* explain here: http://stackoverflow.com/questions/5345365/how-can-nginx-be-upgraded-without-dropping-any-requests
+*/
 
 package gozd
 
 import (
+  "os"
+  "io"
+  "fmt"
+  "net"
+  "log"
+  "sync"
+  "errors"
+  "unsafe"
   "reflect"
-  "flag"
   "syscall"
   "runtime"
-  "os"
-  "strconv"
-  "fmt"
+  "io/ioutil"
   "os/signal"
-  "os/exec"
-  "net"
-  "container/list"
-  "time"
-  "errors"
+  "crypto/sha1"
+  "encoding/json"
   "path/filepath"
-  "strings"
-)
-
-// caller's infomation & channel
-var (
-  openedGOZDConns = list.New()
-  registeredGOZDHandler = make(map[string]*gozdHandler) // key = group name used by specific user defined handler in config file
-  mainRoutineCommChan = make(chan int, 1)
+  "./osext" //  "bitbucket.org/kardianos/osext/src"
 )
 
 var (
-  inheritedFDName []string
-  inheritedFDCnt = 3 // if inherit FD from parent, use this count instead
+  cx_ chan bool = make(chan bool,1)
+  wg_ sync.WaitGroup
+  hash_ string
+  confs_ map[string]Conf = make(map[string]Conf)
 )
 
-var (
-  isDaemonized = false
-  runningPID = -1
-  gozdWorkPath = ""
-)
-
-func Daemonize() (c chan int, isSucceed bool) {
-  // parse arguments
-  flag.Parse()
-  
-  runningPID = os.Getpid()
-  var err error
-  gozdWorkPath, err = filepath.Abs("")
-  if err != nil {
-    LogErr(err.Error())
+// https://codereview.appspot.com/7392048/#ps1002
+func findProcess(pid int) (p *os.Process, err error) {
+  if e := syscall.Kill(pid, syscall.Signal(0)); pid <= 0 || e != nil {
+  	return nil, fmt.Errorf("find process %v", e)
   }
-  Log("gozdWorkPath: " + gozdWorkPath)
-  if isDaemonized {
-    LogErr("Daemon already daemonized.")
-    return c, false
-  }
-
-  *optConfigFile, _ = filepath.Abs(*optConfigFile)
-
-  // -conf parse config
-  if (!parseConfigFile(*optConfigFile)) {
-    LogErr("Config file read error!")
-    usage()
-    os.Exit(1)
-  }
-
-  // find master process id by conf
-  infos, err := getRunningInfoByConf(*optConfigFile, gozdPrefix)
-  var pid int
-  infoCnt := len(infos)
-  if (err != nil || infoCnt < 1) {
-    pid = 0
-  } else {
-    pid, _ = strconv.Atoi(infos[0])
-  }
-
-  if *optInheritFDName != "" {
-    inheritedFDName = strings.Split(*optInheritFDName, ",")
-  }
-  
-  // send signal to the process that has same config
-  switch (*optSendSignal) {
-    case "stop":
-    if (pid != 0) {
-      isRunning := IsProcessRunning(pid)
-      if (isRunning) {
-        p := getRunningProcess(pid)
-        p.Signal(syscall.SIGTERM)
-        os.Exit(0)
-      }
-    }
-    os.Exit(0)
-    
-    case "start", "":
-      if (pid != 0) {
-        isRunning := IsProcessRunning(pid)
-        if isRunning {
-          LogErr("Daemon already started.")
-          os.Exit(1)
-        }
-      }
-      startDaemon()
-    case "reopen","reload":
-      // find old process, send SIGTERM then exit self
-      // the 'real' new process running later starts by old process received SIGTERM
-      if (pid != 0) {
-        isRunning := IsProcessRunning(pid)
-        if isRunning {
-          p := getRunningProcess(pid)
-          p.Signal(syscall.SIGTERM)
-        }
-      }
-      startDaemon()
-  }
-
-  // Handle OS signals
-  // Set up channel on which to send signal notifications.
-  // We must use a buffered channel or risk missing the signal
-  // if we're not ready to receive when the signal is sent.
-  cSignal := make(chan os.Signal, 1)
-  go signalHandler(cSignal)
-  c = mainRoutineCommChan
-  isDaemonized = true
-  return c, true
+  p = &os.Process{Pid: pid}
+  runtime.SetFinalizer(p, (*os.Process).Release)
+  return p, nil
 }
 
-// Regist callback handler
-func RegistHandler(groupName, functionName string, fn interface{}) (err error) {
-  v := reflect.ValueOf(fn)
+func infopath() string {
+  h := sha1.New()
+  io.WriteString(h, hash_)
+  return os.TempDir() + fmt.Sprintf("gozd%x.json", h.Sum(nil))
+}
 
-  defer func(v reflect.Value) {
-    if e := recover(); e != nil {
-      err = errors.New("Callback: [" + groupName + "]" + functionName + "is not callable.")
-      return
-    }
+func abdicate() {
+  // i'm not master anymore
+  os.Remove(infopath())
+}
 
-    if _, ok := optGroups[groupName]; !ok {
-      err = errors.New("Group " + groupName + "not exist!")
-      return
-    }
+func masterproc() (p *os.Process, err error) {
+  file, err := ioutil.ReadFile(infopath())
+  if err != nil {
+    return
+  }
 
-    l, errListen := newGOZDListener(optGroups[groupName].mode, optGroups[groupName].listen, groupName)
-    if errListen != nil {
-      err = errListen
-      return
-    }
+  var pid int
+  err = json.Unmarshal(file, &pid)
+  if err != nil {
+    return
+  }
+  
+  p, err = findProcess(pid)
+  return 
+}
 
-    newHandler := new(gozdHandler)
-    newHandler.funcName = functionName
-    newHandler.val = v
-    newHandler.listener = l
-    registeredGOZDHandler[groupName] = newHandler
-    
-    go startAcceptConn(groupName, l)
-  }(v)
-
-  v.Type().NumIn()
+func writepid() (err error) {
+  
+  var p = os.Getpid()
+  
+  b, err := json.Marshal(p)
+	if err != nil {
+		return
+	}
+  err = ioutil.WriteFile(infopath(), b, 0666)
   return
 }
 
-// A work-around solution since os.Findprocess() not working for now.
-func IsProcessRunning(pid int) bool {
-  if err := syscall.Kill(pid, 0); err != nil {
-    return false
-  } else {
-    return true
-  }
-}
+// distinguish master/worker/shuting down process
+// see: http://stackoverflow.com/questions/14926020/setting-process-name-as-seen-by-ps-in-go
+func setProcessName(name string) error {
+    argv0str := (*reflect.StringHeader)(unsafe.Pointer(&os.Args[0]))
+    argv0 := (*[1 << 30]byte)(unsafe.Pointer(argv0str.Data))[:argv0str.Len]
 
-func startDaemon() {
-  Log("Start daemon!")
-  if daemon(0, 0) != 0 {
-    os.Exit(1) 
-  }
-  pid := os.Getpid()
-  resetRunningInfoByConf(*optConfigFile, gozdPrefix)
-  path := getRunningInfoPathByConf(*optConfigFile, gozdPrefix)
-  writeStringToFile(path, strconv.Itoa(pid))
-}
-
-func usage() {
-  Log("[command] -conf = [config file]")
-  flag.PrintDefaults()
-}
-
-// This function is the implementation of daemon() in standard C library.
-// It forks a child process which copys itself, then terminate itself to make child's PPID = 1
-// For more detail, run "man 3 daemon"
-// "nochdir" is deprecated since it will cause filepath.Abs() get wrong workpath after fork/exec()
-func daemon(nochdir, noclose int) int {
-  var ret, ret2 uintptr
-  var err syscall.Errno
-
-  // If running at foreground, don't fork and continue.
-  // This is useful for development & debug
-  if *optRunForeground == true {
-    return 0
-  }
-
-  darwin := runtime.GOOS == "darwin"
-
-  // already a daemon
-  if syscall.Getppid() == 1 {
-    return 0
-  }
-
-  // fork off the parent process
-  ret, ret2, err = syscall.RawSyscall(syscall.SYS_FORK, 0, 0, 0)
-  if err != 0 {
-    LogErr(err.Error())
-    return -1
-  }
-
-  runningPID = os.Getpid()
-  pid_after_fork := strconv.Itoa(os.Getpid())
-  ppid_after_fork := strconv.Itoa(syscall.Getppid())
-  Log("PID after fork: " + pid_after_fork)
-  Log("PPID after fork: " + ppid_after_fork)
-
-  // failure
-  if ret2 < 0 {
-    LogErr("failure!"+ string(ret2))
-    os.Exit(-1)
-  }
-
-  // handle exception for darwin
-  if darwin && ret2 == 1 {
-    ret = 0
-  }
-
-  if noclose == 0 && *optRunForeground == false {
-      f, e := os.OpenFile("/dev/null", os.O_RDWR, 0)
-      if e == nil {
-        fd := f.Fd()
-        syscall.Dup2(int(fd), int(os.Stdin.Fd()))
-        syscall.Dup2(int(fd), int(os.Stdout.Fd()))
-        syscall.Dup2(int(fd), int(os.Stderr.Fd()))
-      } else {
-        LogErr("Dup to /dev/null error!" + err.Error())
-      }
-  }
-
-  // if we got a good PID, then we call exit the parent process.
-  if ret > 0 {
-    Log("Exit parent process PID: " + pid_after_fork)
-    os.Exit(0)
-  }
-  
-  /* Change the file mode mask */
-  _ = syscall.Umask(0)
-
-  // create a new SID for the child process
-  s_ret, s_errno := syscall.Setsid()
-  if s_errno != nil {
-      LogErr("Error: syscall.Setsid errno: %d", s_errno)
-  }
-  if s_ret < 0 {
-    LogErr("Set sid failed %d", s_ret)
-    return -1
-  }
-
-  Log("PID:" + pid_after_fork + " after parent process exited: " + strconv.Itoa(syscall.Getpid()))
-  Log("PPID:" + ppid_after_fork + " after parent process exited: " + strconv.Itoa(syscall.Getppid()))
-
-  return 0
-}
-
-func startAcceptConn(groupName string, listener *gozdListener) {
-  for {
-    // Wait for a connection.
-    conn, err := listener.Accept()
-    if err != nil {
-      LogErr(err.Error())
-      return
+    n := copy(argv0, name)
+    if n < len(argv0) {
+            argv0[n] = 0
     }
-    // Handle the connection in a new goroutine.
-    // The loop then returns to accepting, so that
-    // multiple connections may be served concurrently.
-    go callHandler(groupName, conn)
-    runtime.Gosched()
-  }  
-}
 
-func startNewInstance(actionToOldProcess string, newFDs []*os.File) (*os.Process) {
-  exec_path, _ := exec.LookPath(os.Args[0])
-  path, _ := filepath.Abs(exec_path)
-  args := make([]string, 0)
-  args = append(args, fmt.Sprintf("-s=%s", actionToOldProcess))
-  args = append(args, fmt.Sprintf("-c=%s", *optConfigFile))
-  if *optRunForeground == true {
-    args = append(args, "-f")
-  }
-
-  if *optVerbose == true {
-    args = append(args, "-v")
-  }
-
-  argFDStr := ""
-  for i := 0; i < len(newFDs); i++ {
-    v := newFDs[i]
-    argFDStr += v.Name()
-    if i < len(newFDs) - 1 {
-      argFDStr += ","
-    }
-  }
-  args = append(args, fmt.Sprintf("-i=%s", argFDStr))
-  
-  cmd := exec.Command(path, args...)
-  cmd.Stdout = os.Stdout
-  cmd.Stderr = os.Stderr
-  cmd.ExtraFiles = newFDs
-  
-  err := cmd.Start()
-  if err != nil {
-    LogErr(err.Error())
     return nil
-  }
-
-  return cmd.Process
 }
 
-func callHandler(groupName string, params ...interface{}) {
-  if _, ok := registeredGOZDHandler[groupName]; !ok {
-    LogErr(groupName + " does not exist.")
-    return
-  }
+// release all the listened port or socket
+// wait all clients disconnect
+// send signal to let caller do cleanups and exit
+func shutdown() {
 
-  handler := registeredGOZDHandler[groupName]
-  if len(params) != handler.val.Type().NumIn() {
-    LogErr("Invalid param of[" + groupName + "]" + handler.funcName)
-    return
+  log.Println("shutting down (pid):", os.Getpid())
+  // shutdown process safely
+  for _,conf := range confs_ {
+    conf.l.Stop()
   }
   
-  in := make([]reflect.Value, len(params))
-  for k, param := range params {
-    in[k] = reflect.ValueOf(param)
-  }
+  execpath, _ := osext.Executable()
+	_, basename := filepath.Split(execpath)
+  setProcessName("(shutting down)"+basename)
   
-  handler.val.Call(in)
+  wg_.Wait()
+  
+  cx_ <- true
 }
 
-func signalHandler(cSignal chan os.Signal) {
-  signal.Notify(cSignal, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR2, syscall.SIGINT)
+func signalHandler() {
+  // this is singleton by process
+  // should not be called more than once!
+  c := make(chan os.Signal, 1)
+  signal.Notify(c, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR2, syscall.SIGINT)
   // Block until a signal is received.
-  for s := range cSignal {
-    Log("Got signal: %v", s)
+  for s := range c {
+    log.Println("signal received: ", s)
     switch (s) {
       case syscall.SIGHUP, syscall.SIGUSR2:
-        // upgrade, reopen
-        // 1. write running process FDs into info config(*.gozd) before starting
-        // 2. stop port listening
-        // 3. using exec.Command() to start a new instance
-        Log("Action: PREPARE TO STOP")
-        newFDs := dupNetFDs()
-        stopListening()
-        child := startNewInstance("reopen", newFDs)
-        handleChildExit(child)
+        // restart / fork and exec
+        err := reload()
+        if err != nil {
+          log.Println("reload err:", err)
+        }
+        return
+
       case syscall.SIGTERM, syscall.SIGINT:
-        Log("Action: CLOSE")
-        // wait all clients disconnect
-        c := make(chan int , 1)
-        go waitTillAllConnClosed(c)
-        <- c
-        // quit, send signal to let caller do cleanups
-        mainRoutineCommChan <- 0
+        abdicate()
+        shutdown()
+        return
     }
   }
 }
 
-// A work-around solution to make a new os.Process since os.newProcess() is not public.
-func getRunningProcess(pid int) (p *os.Process) {
-  p, _ = os.FindProcess(pid)
-  return p
+
+type Conf struct {
+    //mode              string // eg: http/fcgi/https
+    Network, Address  string // eg: unix/tcp, socket/ip:port. see net.Dial
+    //key, cert         string // for https only
+    //serv
+    l *stoppableListener
+    Fd uintptr
 }
 
-// Dup old process's fd to new one, write FD & name into info file.
-func dupNetFDs() (newFDs []*os.File) {
-  newFDs = []*os.File{}
-  resetRunningInfoByConf(*optConfigFile, gozdPrefix)
-  for k, v := range registeredGOZDHandler {
-    Log(k + "|%v", v)
-    l := v.listener.Listener.(*net.TCPListener) // TODO: Support to net.UnixListener
-    newFD, err := l.File() // net.TCPListener.File() call dup() to return a new FD
-    if err == nil {
-      newFDs = append(newFDs, newFD)
-    } else {
-      LogErr(err.Error())
-    }
+type Context struct {
+  Hash    string // config path in most case
+  Signal  string
+  Logfile string
+  Servers map[string]Conf
+}
+
+func validCtx(ctx Context) error {
+  if (len(ctx.Hash) <= 1) {
+    return errors.New("ctx.Hash is too short")
   }
-  return newFDs
-}
-
-func waitTillAllConnClosed(c chan int) {
-  for openedGOZDConns.Len() != 0 {
-    time.Sleep(1 * time.Second)
+ 
+  if (len(ctx.Servers) <= 0) {
+    return errors.New("ctx.Servers is empty")
   }
-  Log("All conn closed.")
-  c <- 1
+  
+  return nil
 }
 
-// If not running foreground, parent should handle child process's exit status after child call Fork(), or a zombie process will occour.
-// Notice: If running foreground, zombie process will occour due to program's main logic. This is not an issue.
-func handleChildExit(process *os.Process) {
-  if *optRunForeground == true || process == nil {
+func equavalent(a Conf, b Conf) bool {
+  return (a.Network == b.Network && a.Address == b.Address)
+}
+
+func reload() (err error) {
+  // fork and exec / restart
+  execpath, err := osext.Executable()
+  if err != nil {
     return
   }
+  
+	wd, err := os.Getwd()
+	if nil != err {
+		return
+	}
 
-  state, err := process.Wait()
-  if err != nil {
-    LogErr(err.Error())
-  } else {
-    if state.Exited() == true {
-      Log("Child %d exited", state.Pid())
-    } else {
-      LogErr("Child %d not exited", state.Pid())
+  abdicate()
+    
+  // write all the fds into a json string
+  // from beego, code is evil but much simpler than extend net/*
+  allFiles := []*os.File{os.Stdin, os.Stdout, os.Stderr}
+  
+  for k,conf := range confs_ {
+   v := reflect.ValueOf(conf.l.Listener).Elem().FieldByName("fd").Elem()
+	 fd := uintptr(v.FieldByName("sysfd").Int())
+   conf.Fd = uintptr(len(allFiles))
+   confs_[k] = conf
+   allFiles = append(allFiles, os.NewFile(fd, string(v.FieldByName("sysfile").String())))
+  }
+  
+  b, err := json.Marshal(confs_)
+	if err != nil {
+		return
+	}
+  inheritedinfo := string(b)
+
+	p, err := os.StartProcess(execpath, os.Args, &os.ProcAttr{
+		Dir:   wd,
+		Env:   append(os.Environ(), fmt.Sprintf("GOZDVAR=%v", inheritedinfo)),
+		Files: allFiles,
+	})
+	if nil != err {
+		return 
+	}
+	log.Printf("child %d spawned, parent: %d\n", p.Pid, os.Getpid())
+  
+  // exit since process already been forked and exec 
+  shutdown()
+  
+  return
+}
+
+func initListeners(s map[string]Conf, cl chan net.Listener) error {
+  // start listening 
+  for k,c := range s {
+    if c.Network == "unix" {
+      os.Remove(c.Address)
+    }
+    listener, e := net.Listen(c.Network, c.Address)
+    if e != nil {
+      // handle error
+      log.Println("bind() failed on:", c.Network, c.Address, "error:", e)
+      continue
+    }
+    if c.Network == "unix" {
+      os.Chmod(c.Address, 0666)
+    }
+    
+    conf := s[k]
+    sl := newStoppable(listener, &wg_)
+    conf.l = sl
+    confs_[k] = conf
+    if cl != nil {
+      cl <- sl
     }
   }
+  if len(confs_) <= 0{
+    return errors.New("interfaces binding failed completely")
+  }
+  
+  return nil
 }
+
+func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error) {
+  
+  err = validCtx(ctx)
+  if err != nil {
+    return
+  }
+  
+  c = cx_
+  hash_ = ctx.Hash
+  
+  // redirect log output, if set
+  if len(ctx.Logfile) > 0 {
+    f, e := os.OpenFile(ctx.Logfile, os.O_WRONLY | os.O_APPEND | os.O_CREATE, os.ModeAppend | 0666)
+    if e != nil {
+      err = e
+      return
+    }
+    log.SetOutput(f)
+  }
+  
+  inherited := os.Getenv("GOZDVAR");
+  if len(inherited) > 0 {
+    
+    // this is the daemon
+    // create a new SID for the child process
+    s_ret, e := syscall.Setsid()
+    if e != nil {
+      err = e
+      return
+    }
+    
+    if s_ret < 0 {
+      err = fmt.Errorf("Set sid failed %d", s_ret)
+      return
+    }
+    
+    // handle inherited fds
+    heirs := make(map[string]Conf)
+    err = json.Unmarshal([]byte(inherited), &heirs)
+    if err != nil {
+      return 
+    }
+
+    
+    for k,heir := range heirs {
+      // compare heirs and ctx confs
+      conf, ok := ctx.Servers[k];
+      if !ok || !equavalent(conf, heir) {
+        // do not add the listener that already been removed
+        continue
+      }
+      
+    	f := os.NewFile(heir.Fd, k) 
+    	l, e := net.FileListener(f)
+    	if e != nil {
+        err = e
+        f.Close()
+        log.Println("inherited listener binding failed", heir.Fd, "for", k, e)
+    		continue 
+    	}
+      heir.l = newStoppable(l, &wg_)
+      delete(ctx.Servers, k)
+      confs_[k] = heir
+      if cl != nil {
+        cl <- heir.l
+      }
+    }
+    
+    if (len(confs_) <= 0 && err != nil) {
+      return
+    }
+    
+    // add new listeners
+    err = initListeners(ctx.Servers, cl)
+    if err != nil {
+      return
+    }
+    
+    // write process info
+    err = writepid()
+    if err != nil {
+      return 
+    }
+
+    // Handle OS signals
+    // Set up channel on which to send signal notifications.
+    // We must use a buffered channel or risk missing the signal
+    // if we're not ready to receive when the signal is sent.
+    go signalHandler()
+        
+    return
+  }
+  
+  // handle reopen or stop command
+  proc, err := masterproc()
+  switch (ctx.Signal) {
+  case "stop","reopen","reload":
+    if err != nil {
+      return
+    }
+    if (ctx.Signal == "stop") {
+      proc.Signal(syscall.SIGTERM)
+    } else {
+      // find old process, send SIGHUP then exit self
+      // the 'real' new process running later starts by old process received SIGHUP
+      proc.Signal(syscall.SIGHUP)
+    }
+    return
+  }
+  
+  // handle start(default) command
+  if err == nil {
+    err = errors.New("daemon already started")
+    return
+  }
+  
+  err = initListeners(ctx.Servers, cl)
+  if err != nil {
+    return
+  }
+  
+  err = reload()
+  if err != nil {
+    return
+  }
+    
+  return 
+}
+
+

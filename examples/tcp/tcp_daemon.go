@@ -1,61 +1,77 @@
 // Use of this source code is governed by a BSD-style license
 package main
 import (
-  //"bitbucket.org/PinIdea/go-zero-downtime-daemon"
-  "../../"
-  "fmt"
   "time"
-  "syscall"
-  "strconv"
+  "net"
+  "log"
   "os"
-)
-const (
-  TCP_MAX_TRANSMISSION_BYTES = 2 * 1024 // 2KB
-  TCP_CONNECTION_TIMEOUT = 12 * time.Hour
+  "fmt"
+  "../../"
 )
 
-func serveTCP(conn gozd.Conn) {
-  fmt.Println("Caller serveTCP!")
-  conn.SetDeadline(time.Now().Add(TCP_CONNECTION_TIMEOUT))
-  defer conn.Close()
-  sendCnt := 1
-  selfPID := syscall.Getpid()
+func serveTCP(conn net.Conn) {
+  // !important: must conn.Close to release the conn from wait group
+  defer conn.Close() 
+  
   for {
-    respondString := "\nPID: " + strconv.Itoa(selfPID) + "\nCount: " + strconv.Itoa(sendCnt)
-    respond := []byte(respondString)
-    _, err := conn.Write(respond)
-    sendCnt++
+    _, err := conn.Write([]byte(fmt.Sprintf("%d ",os.Getpid())))
     if err != nil {
-      fmt.Println(err.Error())
-      break
+      return
     }
+    time.Sleep(1*time.Second)
+  }
+}
 
-    time.Sleep(time.Second)
+func handleListners(cl chan net.Listener) {
+  
+  for v := range cl {
+    go func(l net.Listener) {
+      for {
+      	conn, err := l.Accept()
+      	if err != nil {
+      		// gozd.ErrorAlreadyStopped may occur when shutdown/reload
+          log.Println("accept error: ", err)
+      		break
+      	}
+ 
+      	go serveTCP(conn)
+      }
+    }(v)
   }
 }
 
 func main() {
-  daemonChan, isSucceed := gozd.Daemonize() // returns channel that connects with daemon
-  if !isSucceed {
-    os.Exit(1)
-  }
-
-  err := gozd.RegistHandler("Group0", "serveTCP", serveTCP) // regist your own handle function, parameters MUST contain a "gozd.Conn" type.
+  ctx  := gozd.Context{
+            Hash:"tcp_example",
+            Signal:"",
+            Logfile:os.TempDir()+"tcp_daemon.log", 
+            // Logfile:"/var/log/tcp_daemon.log", 
+            Servers:map[string]gozd.Conf{
+              "sock":gozd.Conf{
+                Network:"unix",
+                Address:os.TempDir() + "tcp_daemon.sock",
+              },
+              "port1":gozd.Conf{
+                Network:"tcp",
+                Address:"127.0.0.1:2133",
+              },
+              "port2":gozd.Conf{
+                Network:"tcp",
+                Address:"127.0.0.1:2233",
+              },
+            },
+          }
+  
+  cl := make(chan net.Listener,1)
+  go handleListners(cl)
+  done, err := gozd.Daemonize(ctx, cl) // returns channel that connects with daemon
   if err != nil {
-    gozd.LogErr(err.Error())
-    os.Exit(1)
+    log.Println("error: ", err)
+    return
   }
-
-  err = gozd.RegistHandler("Group2", "serveTCP", serveTCP) // regist your own handle function, parameters MUST contain a "gozd.Conn" type.
-  if err != nil {
-    gozd.LogErr(err.Error())
-    os.Exit(1)
+  
+  if <- done {
+    // do some clean up and exit
   }
+}
 
-  waitTillFinish(daemonChan) // wait till daemon send a exit signal
-}
-func waitTillFinish(daemonChan chan int) {
-  code := <- daemonChan
-  gozd.Log("Exit tcp_daemon.")
-  os.Exit(code)
-}
