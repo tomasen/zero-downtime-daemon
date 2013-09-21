@@ -25,23 +25,24 @@ Basic intergration steps are:
 ##Daemon Usage
 
 > kill -TERM <pid>  send signal to gracefully shutdown daemon without break existing connections and services.
+
 > kill -HUP <pid>  send signal to restart daemon's latest binary, without break existing connections and services.
 
 ##Daemon Configuration
 
-:::golang
-  ctx  := gozd.Context{
-    Hash:[DAEMON_NAME],
-    Signal:[start,stop,reload],
-    Logfile:[LOG_FILEPATH,""], 
-    Servers:map[string]gozd.Conf{
-      [SERVER_ID]:gozd.Conf{
-        Network:["unix","tcp"],
-        Address:[SOCKET_FILE(eg./tmp/daemon.sock),TCP_ADDR(eg. 127.0.0.1:80)],
+<!-- language: lang-js -->
+    ctx  := gozd.Context{
+      Hash:[DAEMON_NAME],
+      Signal:[start,stop,reload],
+      Logfile:[LOG_FILEPATH,""], 
+      Servers:map[string]gozd.Conf{
+        [SERVER_ID]:gozd.Conf{
+          Network:["unix","tcp"],
+          Address:[SOCKET_FILE(eg./tmp/daemon.sock),TCP_ADDR(eg. 127.0.0.1:80)],
+        },
+        ...
       },
-      ...
-    },
-  }
+    }
 
 ##TODO
 
