@@ -30,7 +30,8 @@ Basic intergration steps are:
 
 ##Daemon Configuration
 
-<!-- language: lang-js -->
+{{{
+#!go
     ctx  := gozd.Context{
       Hash:[DAEMON_NAME],
       Signal:[start,stop,reload],
@@ -43,7 +44,8 @@ Basic intergration steps are:
         ...
       },
     }
-
+}}}
+  
 ##TODO
 
 1. more examples to cover usage of:
