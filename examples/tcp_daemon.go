@@ -42,19 +42,22 @@ func handleListners(cl chan net.Listener) {
 
 func main() {
   ctx  := gozd.Context{
-            Hash:"tcp_example",
-            Signal:"",
+            Hash:   "tcp_example",
+            Command:"start",
+            Maxfds: 32767,
+            User:   "www",
+            Group:  "www",
             Logfile:os.TempDir()+"tcp_daemon.log", 
-            Servers:map[string]gozd.Conf{
-              "sock":gozd.Conf{
+            Directives:map[string]gozd.Server{
+              "sock":gozd.Server{
                 Network:"unix",
                 Address:os.TempDir() + "tcp_daemon.sock",
               },
-              "port1":gozd.Conf{
+              "port1":gozd.Server{
                 Network:"tcp",
                 Address:"127.0.0.1:2133",
               },
-              "port2":gozd.Conf{
+              "port2":gozd.Server{
                 Network:"tcp",
                 Address:"127.0.0.1:2233",
               },
@@ -71,6 +74,7 @@ func main() {
   
   if <- done {
     // do some clean up and exit
+    
   }
 }
 
