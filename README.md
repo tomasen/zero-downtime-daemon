@@ -58,7 +58,7 @@ Basic intergration steps are:
 
 Help is needed to write more test cases and stress test.
 
-Patches or suggestions that can make the code simpler or easier to use are welcome to submit to [issue area|https://bitbucket.org/PinIdea/go-zero-downtime-daemon/issues?status=new&status=open].
+Patches or suggestions that can make the code simpler or easier to use are welcome to submit to [issue area](https://bitbucket.org/PinIdea/go-zero-downtime-daemon/issues?status=new&status=open).
 
 ##How it works
 
