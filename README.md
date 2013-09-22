@@ -1,4 +1,6 @@
-#`gozd`, is a configurable zero downtime daemon(TCP/HTTP/FCGI) framework write in golang. All it takes is integrating just one simple call to gozd.Daemonize(). Then you will get:
+#`gozd`, a configurable zero downtime daemon(TCP/HTTP/FCGI) framework write in golang. 
+
+All it takes is integrating just one simple call to gozd.Daemonize(). Then you will get:
 
 1. upgrade binary/service with absolutely zero downtime. high availability!
 2. listen to multiple port and/or socket in same program
