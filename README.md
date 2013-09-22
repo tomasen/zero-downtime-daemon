@@ -12,9 +12,9 @@
 
 There are sample programs in the "examples" directory.
 
-Basic intergration steps are:
+Basic integration steps are:
 
-1. Initialize a channel and perpare a goroutine to handler new net.Listener 
+1. Initialize a channel and prepare a goroutine to handler new net.Listener 
 2. Call `gozd.Daemonize(Context, chan net.Listener)` to initialize `gozd` & obtain a channel to receive exit signal from `gozd`.
 3. Wait till daemon send a exit signal, do some cleanup if you want.
 
@@ -64,12 +64,12 @@ Patches or suggestions that can make the code simpler or easier to use are welco
 
 The basic principle: master process fork a process, and child process evecve corresponding binary. 
 
-`os.StartProcess` did the trick to append files that contains handle that is can be inherited. Then the child process can start listening from same handle which we passed fd number via environment variable as index. After that we use `net.FileListener` to recreate net.Listener interface to gain accesss to the socket created by last master process.
+`os.StartProcess` did the trick to append files that contains handle that is can be inherited. Then the child process can start listening from same handle which we passed fd number via environment variable as index. After that we use `net.FileListener` to recreate net.Listener interface to gain access to the socket created by last master process.
 
-We also expand the net.Listener and net.Conn, so that the master process will stop accept new connection and wait untill all existing connection to dead naturely before exit the process. 
+We also expand the net.Listener and net.Conn, so that the master process will stop accept new connection and wait until all existing connection to dead naturally before exit the process. 
 
 The detail in in the code of reload() in daemon.go. 
 
 ## Special Thanks
 
-The hotupdate idea and code is inspaired by nginx and beego. Thanks.
+The zero downtime idea and code is inspired by nginx and beego. Thanks.
