@@ -3,8 +3,8 @@
 All it takes is integrating just one simple call to gozd.Daemonize(). Then you will get:
 
 1. upgrade binary/service with absolutely zero downtime. high availability!
-2. listen to multiple port and/or socket in same program
-3. gracefully shutdown service without breaking any existing connections
+2. listen to multiple port and/or socket in the same program. also able to add/remove/update them with zero downtime.
+3. gracefully shutdown service without breaking any existing connections.
 
 ####Status: In Development
 
