@@ -2,7 +2,7 @@
 
 1. upgrade binary/service with absolutely zero downtime. high availability!
 2. listen to multiple port and/or socket in same program
-3. gracefully shutdown service without break and existing connections
+3. gracefully shutdown service without breaking any existing connections
 
 ##How to install
 
@@ -20,9 +20,9 @@ Basic integration steps are:
 
 ##Daemon Usage
 
-> kill -TERM <pid>  send signal to gracefully shutdown daemon without break existing connections and services.
+> kill -TERM <pid>  send signal to gracefully shutdown daemon without breaking existing connections and services.
 
-> kill -HUP <pid>  send signal to restart daemon's latest binary, without break existing connections and services.
+> kill -HUP <pid>  send signal to start daemon's latest binary, without breaking existing connections and services, and also absolutely zero downtime. old process will be gracefully shut down.
 
 ##Daemon Configuration
 
@@ -70,6 +70,7 @@ We also expand the net.Listener and net.Conn, so that the master process will st
 
 The detail in in the code of reload() in daemon.go. 
 
-## Special Thanks
+##Special Thanks
 
 The zero downtime idea and code is inspired by nginx and beego. Thanks.
+
