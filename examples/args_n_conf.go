@@ -1,5 +1,6 @@
-// This example demonstrate the basic usage of gozd
-// It listening to 2 ports and 1 unix socket and send pid to client every second
+// This example demonstrate the usage of argument flags and conf file
+// after build start the process by run `args_n_conf -c ./sample.conf`
+// and use `args_n_conf -c ./sample.conf -s reload` to upgrade binary or reload config
 // Use of this source code is governed by a BSD-style license
 
 package main
@@ -8,9 +9,23 @@ import (
   "net"
   "log"
   "os"
+  "flag"
   "fmt"
+  "io/ioutil"
+  "encoding/json"
   "../"
 )
+
+var (
+  optCommand  = flag.String("s","","send signal to a master process: stop, quit, reopen, reload")
+  optConfPath = flag.String("c","","set configuration file" )
+  optHelp     = flag.Bool("h",false,"this help")
+)
+
+func usage() {
+  fmt.Println("[command] -conf=[config file]")
+  flag.PrintDefaults()
+}
 
 func serveTCP(conn net.Conn) {
   // !important: must conn.Close to release the conn from wait group
@@ -44,28 +59,25 @@ func handleListners(cl chan net.Listener) {
 }
 
 func main() {
-  ctx  := gozd.Context{
-    Hash:   "tcp_example",
-    Command:"start",
-    Maxfds: 32767,
-    User:   "www",
-    Group:  "www",
-    Logfile:os.TempDir()+"tcp_daemon.log", 
-    Directives:map[string]gozd.Server{
-      "sock":gozd.Server{
-        Network:"unix",
-        Address:os.TempDir() + "tcp_daemon.sock",
-      },
-      "port1":gozd.Server{
-        Network:"tcp",
-        Address:"127.0.0.1:2133",
-      },
-      "port2":gozd.Server{
-        Network:"tcp",
-        Address:"127.0.0.1:2233",
-      },
-    },
+  // parse arguments
+  flag.Parse()
+
+  // parse conf file
+  file, err := ioutil.ReadFile(*optConfPath)
+  if err != nil {
+    log.Println("error: ", err)
+    return
   }
+  
+  var ctx gozd.Context
+  err = json.Unmarshal(file, &ctx)
+  if err != nil {
+    log.Println("error: ", err)
+    return
+  }
+  
+  ctx.Command = *optCommand
+  ctx.Hash    = *optConfPath
   
   cl := make(chan net.Listener,1)
   go handleListners(cl)
