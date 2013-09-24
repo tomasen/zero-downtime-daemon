@@ -49,7 +49,7 @@ import (
   "crypto/sha1"
   "encoding/json"
   "path/filepath"
-  "./osext" //  "bitbucket.org/kardianos/osext/src"
+  osext  "bitbucket.org/PinIdea/osext"
 )
 
 var (
