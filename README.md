@@ -12,7 +12,7 @@ All it takes is integrating just one simple call to gozd.Daemonize(). Then you w
 
 ##How to install
 
-    go get -u bitbucket.org/PinIdea/go-zero-downtime-daemon
+    go get -u bitbucket.org/PinIdea/zero-downtime-daemon
 
 ##Sample Code & Integration
 
@@ -51,14 +51,11 @@ Basic integration steps are:
   
 ##TODO
 
-1. more examples to cover usage of:
-    + fcgi server
-    + http server
-    + https server
-2. test cases
-    + test config change while HUP
-    + race condition test
-    + stress test
+test cases
+
+  + test config change while HUP
+  + race condition test
+  + stress test
 
 ##How to contribute
 
