@@ -65,7 +65,7 @@ Patches or suggestions that can make the code simpler or easier to use are welco
 
 ##How it works
 
-The basic principle: master process fork a process, and child process evecve corresponding binary. 
+The basic principle: master process fork the process, and child process evecve corresponding binary which inherit the file descriptions of the listening port and/or socket. 
 
 `os.StartProcess` did the trick to append files that contains handle that is can be inherited. Then the child process can start listening from same handle which we passed fd number via environment variable as index. After that we use `net.FileListener` to recreate net.Listener interface to gain access to the socket created by last master process.
 
