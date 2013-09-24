@@ -61,6 +61,11 @@ func handleListners(cl chan net.Listener) {
 func main() {
   // parse arguments
   flag.Parse()
+  
+  if (*optHelp) {
+    usage()
+    return
+  }
 
   // parse conf file
   file, err := ioutil.ReadFile(*optConfPath)
@@ -86,6 +91,8 @@ func main() {
     log.Println("error: ", err)
     return
   }
+  
+  // other initializations or config setting
   
   if <- done {
     // do some clean up and exit

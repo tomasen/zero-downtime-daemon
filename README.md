@@ -36,7 +36,7 @@ Basic integration steps are:
       Hash:[DAEMON_NAME],
       Command:[start,stop,reload],
       Logfile:[LOG_FILEPATH,""], 
-      Maxfds: [RLIMIT_NOFILE],
+      Maxfds: {[RLIMIT_NOFILE_SOFTLIMIT],[RLIMIT_NOFILE_HARDLIMIT]}
       User:   [USERID],
       Group:  [GROUPID],
       Directives:map[string]gozd.Server{

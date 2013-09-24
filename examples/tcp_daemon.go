@@ -9,6 +9,7 @@ import (
   "log"
   "os"
   "fmt"
+  "syscall"
   "../"
 )
 
@@ -47,7 +48,7 @@ func main() {
   ctx  := gozd.Context{
     Hash:   "tcp_example",
     Command:"start",
-    Maxfds: 32767,
+    Maxfds: syscall.Rlimit{Cur:32677, Max:32677},
     User:   "www",
     Group:  "www",
     Logfile:os.TempDir()+"tcp_daemon.log", 
@@ -74,6 +75,8 @@ func main() {
     log.Println("error: ", err)
     return
   }
+  
+  // other initializations or config setting
   
   if <- done {
     // do some clean up and exit

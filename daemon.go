@@ -108,15 +108,17 @@ func writepid() (err error) {
   return
 }
 
-func setrlimit(rl uint64) (err error) {
-  if rl > 0 {
+func setrlimit(rl syscall.Rlimit) (err error) {
+  if rl.Cur > 0 && rl.Max > 0 {
     var lim syscall.Rlimit
     if err = syscall.Getrlimit(syscall.RLIMIT_NOFILE, &lim); err != nil {
       log.Println("failed to get NOFILE rlimit: ", err)
       return
     }
-    lim.Cur = rl
-    lim.Max = rl
+    
+    lim.Cur = rl.Cur
+    lim.Max = rl.Max
+    
     if err = syscall.Setrlimit(syscall.RLIMIT_NOFILE, &lim); err != nil {
       log.Println("failed to set NOFILE rlimit: ", err)
       return
@@ -225,7 +227,7 @@ type Context struct {
   Hash     string // suggest using config path
   User     string
   Group    string
-  Maxfds   uint64
+  Maxfds   syscall.Rlimit
   Command  string
   Logfile  string
   Directives map[string]Server
