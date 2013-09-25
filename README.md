@@ -63,6 +63,9 @@ Basic integration steps are:
         ...
       },
     }
+   
+##Typical usage
+Gateway, 
   
 ##TODO
 

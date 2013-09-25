@@ -1,5 +1,4 @@
 // This example demonstrate the basic usage of gozd
-// It listening to 2 ports and 1 unix socket and send pid to client every second
 // Use of this source code is governed by a BSD-style license
 
 package main
