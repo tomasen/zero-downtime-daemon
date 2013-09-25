@@ -66,7 +66,7 @@ func handleListners(cl chan net.Listener) {
       case "http":
         handler := new(HTTPServer)
         http.Serve(l, handler)
-      case "tcp":
+      case "tcp_sock","tcp_port":
         for {
           conn, err := l.Accept()
           if err != nil {
@@ -111,12 +111,16 @@ func main() {
     Hash:   "https_example",
     Logfile:os.TempDir()+"https_daemon.log", 
     Directives:map[string]gozd.Server{
-      "tcp":gozd.Server{
-        Network:"tcp",
+      "tcp_sock":gozd.Server{
+        Network:"unix",
         Address:os.TempDir() + "mixed_tcp.sock",
       },
+      "tcp_port":gozd.Server{
+        Network:"tcp",
+        Address:"127.0.0.1:9000",
+      },
       "fcgi":gozd.Server{
-        Network:"fcgi",
+        Network:"unix",
         Address:os.TempDir() + "mixed_fcgi.sock",
       },
       "https":gozd.Server{
