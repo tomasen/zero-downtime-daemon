@@ -16,7 +16,8 @@ All it takes is integrating just one simple call to gozd.Daemonize(). Then you w
 
 ##Sample Code & Integration
 
-There are sample programs in the "examples" directory.    
+There are sample programs in the "examples" directory.
+
 * tcp_daemon.go     
   *demonstrate typical tcp service daemon, listen to multiple socket and ports*     
 * args_n_conf.go         
