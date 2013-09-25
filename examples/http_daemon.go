@@ -8,7 +8,7 @@ import (
   "net"
   "log"
   "os"
-  "../"
+  gozd "bitbucket.org/PinIdea/zero-downtime-daemon"
 )
 
 type HTTPServer struct{}

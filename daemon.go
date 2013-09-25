@@ -320,7 +320,7 @@ func initListeners(s map[string]Server, cl chan net.Listener) error {
     }
     
     conf := s[k]
-    sl := newStoppable(listener, &wg_)
+    sl := newStoppable(listener, &wg_, k)
     conf.l = sl
     confs_[k] = conf
     if cl != nil {
@@ -398,7 +398,7 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error) {
         log.Println("inherited listener binding failed", heir.Fd, "for", k, e)
         continue 
       }
-      heir.l = newStoppable(l, &wg_)
+      heir.l = newStoppable(l, &wg_, k)
       delete(ctx.Directives, k)
       confs_[k] = heir
       if cl != nil {

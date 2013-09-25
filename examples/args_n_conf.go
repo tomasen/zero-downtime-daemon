@@ -13,7 +13,7 @@ import (
   "fmt"
   "io/ioutil"
   "encoding/json"
-  "../"
+  gozd "bitbucket.org/PinIdea/zero-downtime-daemon"
 )
 
 var (

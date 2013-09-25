@@ -10,8 +10,8 @@ import (
   "os"
   "fmt"
   "strings"
-  _ "bitbucket.org/PinIdea/fcgi_ext"
-  "../"
+  fcgi "bitbucket.org/PinIdea/fcgi_ext"
+  gozd "bitbucket.org/PinIdea/zero-downtime-daemon"
 )
 
 type FastCGIServer struct{}
@@ -21,7 +21,7 @@ func (s FastCGIServer) ServeFCGI(resp http.ResponseWriter, req *http.Request, fc
   req.ParseForm();
   
   switch{
-    case strings.HasPrefix(strings.ToLower(req.RequestURI), "/search"):
+    case strings.HasPrefix(strings.ToLower(req.RequestURI), "/"):
       fmt.Fprintf(resp, "Hello, %v", req.RequestURI)
   }
 

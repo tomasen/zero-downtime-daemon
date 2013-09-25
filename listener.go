@@ -31,15 +31,13 @@ func (c conn) Close() error {
 
 type stoppableListener struct {
   net.Listener
+  Name    string
   stopped bool
   wg      *sync.WaitGroup
 }
 
-var theStoppable *stoppableListener
-
-func newStoppable(l net.Listener, w *sync.WaitGroup) (sl *stoppableListener) {
-  sl = &stoppableListener{Listener: l, wg: w}
-
+func newStoppable(l net.Listener, w *sync.WaitGroup, n string) (sl *stoppableListener) {
+  sl = &stoppableListener{Listener: l, wg: w, Name: n}
   return
 }
 

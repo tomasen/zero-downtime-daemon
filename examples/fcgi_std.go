@@ -9,7 +9,7 @@ import (
   "log"
   "os"
   "net/http/fcgi"
-  "../"
+  gozd "bitbucket.org/PinIdea/zero-downtime-daemon"
 )
 
 type FastCGIServer struct{}

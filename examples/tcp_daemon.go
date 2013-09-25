@@ -10,7 +10,7 @@ import (
   "os"
   "fmt"
   "syscall"
-  "../"
+  gozd "bitbucket.org/PinIdea/zero-downtime-daemon"
 )
 
 func serveTCP(conn net.Conn) {
