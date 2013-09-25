@@ -16,7 +16,21 @@ All it takes is integrating just one simple call to gozd.Daemonize(). Then you w
 
 ##Sample Code & Integration
 
-There are sample programs in the "examples" directory.
+There are sample programs in the "examples" directory.    
+* tcp_daemon.go     
+  *demonstrate typical tcp service daemon, listen to multiple socket and ports*     
+* args_n_conf.go         
+  *demonstrate controling daemon reload config from file by command line arguments*      
+* fcgi_std.go        
+  *demonstrate typical fcgi service daemon*     
+* fcgi_daemon.go	  
+  *demonstrate extended fcgi service daemon, able to process server params*     
+* http_daemon.go	 
+  *demonstrate typical http service daemon*     
+* https_daemon.go	
+  *demonstrate typical https service daemon*     
+* mixed_daemon.go
+  *demonstrate mixed service(tcp/fcgi/http/https) daemon, listen to diffrent socket and ports*
 
 Basic integration steps are:
 
