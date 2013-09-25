@@ -1,3 +1,4 @@
+// +build ignore
 // This example demonstrate the basic usage of gozd
 // Use of this source code is governed by a BSD-style license
 

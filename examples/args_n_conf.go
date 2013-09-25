@@ -1,3 +1,4 @@
+// +build ignore
 // This example demonstrate the usage of argument flags and conf file
 // after build start the process by run `args_n_conf -c ./sample.conf`
 // and use `args_n_conf -c ./sample.conf -s reload` to upgrade binary or reload config
