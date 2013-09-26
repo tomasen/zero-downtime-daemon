@@ -2,8 +2,8 @@ package gozd
 
 import (
   "net"
-  "sync"
   "errors"
+  "sync/atomic"
 )  
 
 var (
@@ -13,18 +13,13 @@ var (
 // Allows for us to notice when the connection is closed.
 type conn struct {
   net.Conn
-  wg      *sync.WaitGroup
-  isclose bool
-  lock    sync.Mutex
+  isclose int32
 }
 
 func (c conn) Close() error {
-  c.lock.Lock()
-  defer c.lock.Unlock()
   err := c.Conn.Close()
-  if !c.isclose && err == nil {
-    c.wg.Done()
-    c.isclose = true
+  if atomic.CompareAndSwapInt32(&c.isclose, 0, 1) && err == nil {
+    wg_.Done()
   }
   return err
 }
@@ -32,32 +27,32 @@ func (c conn) Close() error {
 type stoppableListener struct {
   net.Listener
   Name    string
-  stopped bool
-  wg      *sync.WaitGroup
+  stopped int32 
 }
 
-func newStoppable(l net.Listener, w *sync.WaitGroup, n string) (sl *stoppableListener) {
-  sl = &stoppableListener{Listener: l, wg: w, Name: n}
+func newStoppable(l net.Listener, n string) (sl *stoppableListener) {
+  sl = &stoppableListener{Listener: l, Name: n, stopped:0}
   return
 }
 
 func (sl *stoppableListener) Accept() (c net.Conn, err error) {
-  if sl.stopped == true {
+  if atomic.LoadInt32(&sl.stopped) == 1 {
     return nil, ErrorAlreadyStopped
   }
+  
   c, err = sl.Listener.Accept()
   if err != nil {
     return
   }
-  sl.wg.Add(1)
+  wg_.Add(1)
   // Wrap the returned connection, so that we can observe when
   // it is closed.
-  c = conn{Conn: c, wg: sl.wg}
+  c = conn{Conn: c, isclose: 0}
   return
 }
 
 func (sl *stoppableListener) Stop() {
-  sl.stopped = true
+  atomic.StoreInt32(&sl.stopped, 1)
   // do not close because net.UnixListener will unlink 
   // socket file on close and mess things up
   // sl.Listener.Close()
