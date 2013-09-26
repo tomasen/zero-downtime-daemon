@@ -20,6 +20,7 @@ import (
 var (
   optCommand  = flag.String("s","","send signal to a master process: stop, quit, reopen, reload")
   optConfPath = flag.String("c","","set configuration file" )
+  optPidPath  = flag.String("pid","","set pid file" )
   optHelp     = flag.Bool("h",false,"this help")
 )
 
@@ -84,6 +85,7 @@ func main() {
   
   ctx.Command = *optCommand
   ctx.Hash    = *optConfPath
+  ctx.Pidfile = *optPidPath
   
   cl := make(chan net.Listener,1)
   go handleListners(cl)

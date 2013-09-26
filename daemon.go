@@ -55,10 +55,11 @@ import (
 )
 
 var (
-  cx_     chan bool = make(chan bool,1)
-  wg_     sync.WaitGroup
-  hash_   string
-  confs_  map[string]Server = make(map[string]Server)
+  cx_       chan bool = make(chan bool,1)
+  wg_       sync.WaitGroup
+  hash_     string
+  confs_    map[string]Server = make(map[string]Server)
+  pidfile_  string
 )
 
 // https://codereview.appspot.com/7392048/#ps1002
@@ -106,6 +107,11 @@ func writepid() (err error) {
   if err != nil {
     return
   }
+  
+  if len(pidfile_) > 0 {
+    _ = ioutil.WriteFile(pidfile_, b, 0666)
+  }
+  
   err = ioutil.WriteFile(infopath(), b, 0666)
   return
 }
@@ -236,6 +242,7 @@ type Context struct {
   Maxfds   syscall.Rlimit
   Command  string
   Logfile  string
+  Pidfile  string
   Directives map[string]Server
 }
 
@@ -350,8 +357,9 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error) {
     return
   }
   
-  c = cx_
-  hash_ = ctx.Hash
+  c       = cx_
+  hash_   = ctx.Hash
+  pidfile_ = ctx.Pidfile
   
   // redirect log output, if set
   if len(ctx.Logfile) > 0 {
