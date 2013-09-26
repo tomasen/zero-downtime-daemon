@@ -48,6 +48,7 @@ import (
   "os/signal"
   "crypto/sha1"
   "encoding/json"
+  "path"
   "path/filepath"
   osext  "bitbucket.org/PinIdea/osext"
 )
@@ -72,7 +73,7 @@ func findProcess(pid int) (p *os.Process, err error) {
 func infopath() string {
   h := sha1.New()
   io.WriteString(h, hash_)
-  return os.TempDir() + fmt.Sprintf("gozd%x.json", h.Sum(nil))
+  return path.Join(os.TempDir(), fmt.Sprintf("gozd%x.json", h.Sum(nil)))
 }
 
 func abdicate() {
@@ -128,6 +129,10 @@ func setrlimit(rl syscall.Rlimit) (err error) {
 }
 
 func setuid(u string, g string) (err error) {
+  
+  if (len(u) <= 0) {
+    return
+  }
   
   userent, err := user.Lookup(u);
   if err != nil {
@@ -335,7 +340,7 @@ func initListeners(s map[string]Server, cl chan net.Listener) error {
 }
 
 func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error) {
-  
+
   err = validCtx(ctx)
   if err != nil {
     return
@@ -353,14 +358,13 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error) {
     }
     log.SetOutput(f)
   }
-  
+
   setrlimit(ctx.Maxfds)
   
   setuid(ctx.User, ctx.Group)
-    
+
   inherited := os.Getenv("GOZDVAR");
   if len(inherited) > 0 {
-    
     // this is the daemon
     // create a new SID for the child process
     s_ret, e := syscall.Setsid()
@@ -381,7 +385,6 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error) {
       return 
     }
 
-    
     for k,heir := range heirs {
       // compare heirs and ctx confs
       conf, ok := ctx.Directives[k];
@@ -389,7 +392,7 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error) {
         // do not add the listener that already been removed
         continue
       }
-      
+
       f := os.NewFile(heir.Fd, k) 
       l, e := net.FileListener(f)
       if e != nil {

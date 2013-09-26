@@ -10,6 +10,7 @@ import (
   "os"
   "fmt"
   "syscall"
+  "path"
   gozd "bitbucket.org/PinIdea/zero-downtime-daemon"
 )
 
@@ -45,17 +46,19 @@ func handleListners(cl chan net.Listener) {
 }
 
 func main() {
+  
+  log.Println(os.TempDir())
   ctx  := gozd.Context{
     Hash:   "tcp_example",
     Command:"start",
     Maxfds: syscall.Rlimit{Cur:32677, Max:32677},
     User:   "www",
     Group:  "www",
-    Logfile:os.TempDir()+"tcp_daemon.log", 
+    Logfile:path.Join(os.TempDir(),"tcp_daemon.log"), 
     Directives:map[string]gozd.Server{
       "sock":gozd.Server{
         Network:"unix",
-        Address:os.TempDir() + "tcp_daemon.sock",
+        Address:path.Join(os.TempDir(), "tcp_daemon.sock"),
       },
       "port1":gozd.Server{
         Network:"tcp",
