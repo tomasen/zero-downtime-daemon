@@ -50,6 +50,7 @@ import (
   "encoding/json"
   "path"
   "path/filepath"
+  "os/exec"
   osext  "bitbucket.org/PinIdea/osext"
 )
 
@@ -258,7 +259,10 @@ func reload() (err error) {
   // fork and exec / restart
   execpath, err := osext.Executable()
   if err != nil {
-    return
+    execpath, err = exec.LookPath(os.Args[0])
+    if err != nil {
+      return
+    }
   }
   
   wd, err := os.Getwd()
@@ -452,6 +456,7 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error) {
       // the 'real' new process running later starts by old process received SIGHUP
       proc.Signal(syscall.SIGHUP)
     }
+    err = errors.New("signaling master daemon")
     return
   }
   
