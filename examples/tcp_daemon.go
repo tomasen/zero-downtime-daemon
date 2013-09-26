@@ -11,6 +11,7 @@ import (
   "fmt"
   "syscall"
   "path"
+  "reflect"
   gozd "bitbucket.org/PinIdea/zero-downtime-daemon"
 )
 
@@ -31,6 +32,7 @@ func handleListners(cl chan net.Listener) {
   
   for v := range cl {
     go func(l net.Listener) {
+      log.Println("listener: ", reflect.ValueOf(l).Elem().FieldByName("Name").String())
       for {
         conn, err := l.Accept()
         if err != nil {
@@ -47,7 +49,6 @@ func handleListners(cl chan net.Listener) {
 
 func main() {
   
-  log.Println(os.TempDir())
   ctx  := gozd.Context{
     Hash:   "tcp_example",
     Command:"start",

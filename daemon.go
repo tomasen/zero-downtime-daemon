@@ -190,7 +190,7 @@ func shutdown() {
   setProcessName("(shutting down)"+basename)
   
   wg_.Wait()
-  
+
   cx_ <- true
 }
 
@@ -273,13 +273,13 @@ func reload() (err error) {
   allFiles := []*os.File{os.Stdin, os.Stdout, os.Stderr}
   
   for k,conf := range confs_ {
-    v := reflect.ValueOf(conf.l.Listener).Elem().FieldByName("fd").Elem()
+    v  := reflect.ValueOf(conf.l.Listener).Elem().FieldByName("fd").Elem()
     fd := uintptr(v.FieldByName("sysfd").Int())
-   
-    allFiles = append(allFiles, os.NewFile(fd, string(v.FieldByName("sysfile").String())))
+    f  := os.NewFile(fd, string(v.FieldByName("sysfile").String()))
+    allFiles = append(allFiles, f)
    
     // presume the dupped fd by os.StartProcess is the same of the order of s.ProcAttr:Files
-    conf.Fd = uintptr(len(allFiles))
+    conf.Fd = uintptr(len(allFiles)) - 1
     confs_[k] = conf
   }
   
@@ -394,19 +394,23 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error) {
       }
 
       f := os.NewFile(heir.Fd, k) 
+      if (f == nil) {
+        log.Println("unusable inherited fd", heir.Fd, "for", k)
+      }
       l, e := net.FileListener(f)
       if e != nil {
         err = e
-        f.Close()
+        go f.Close()
         log.Println("inherited listener binding failed", heir.Fd, "for", k, e)
         continue 
       }
+
       heir.l = newStoppable(l, &wg_, k)
-      delete(ctx.Directives, k)
       confs_[k] = heir
       if cl != nil {
         cl <- heir.l
       }
+      delete(ctx.Directives, k)
     }
     
     if (len(confs_) <= 0 && err != nil) {
@@ -466,6 +470,8 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error) {
   if err != nil {
     return
   }
+  
+  
     
   return 
 }
