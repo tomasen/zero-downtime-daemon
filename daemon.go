@@ -299,10 +299,11 @@ func reload() (err error) {
     return
   }
   inheritedinfo := string(b)
-
+  
+  os.Setenv("GOZDVAR", inheritedinfo)
   p, err := os.StartProcess(execpath, os.Args, &os.ProcAttr{
     Dir:   wd,
-    Env:   append(os.Environ(), fmt.Sprintf("GOZDVAR=%v", inheritedinfo)),
+    Env:   os.Environ(),
     Files: allFiles,
   })
   if nil != err {
