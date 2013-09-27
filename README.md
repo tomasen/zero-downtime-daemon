@@ -18,7 +18,7 @@ All it takes is integrating just one simple call to gozd.Daemonize(). Then you w
 
 There are sample programs in the "examples" directory.
 
-* tcp_daemon.go     
+* tcp_daemon.go      
   *demonstrate typical tcp service daemon, listen to multiple socket and ports*     
 * args_n_conf.go         
   *demonstrate controling daemon reload config from file by command line arguments*      
@@ -30,7 +30,7 @@ There are sample programs in the "examples" directory.
   *demonstrate typical http service daemon*     
 * https_daemon.go	
   *demonstrate typical https service daemon*     
-* mixed_daemon.go
+* mixed_daemon.go (advanced usage)
   *demonstrate mixed service(tcp/fcgi/http/https) daemon, listen to diffrent socket and ports*
 
 Basic integration steps are:
@@ -65,13 +65,13 @@ Basic integration steps are:
     }
    
 ##Typical usage
-Gateway, 
+
+Gateway, Load Balancer, Stateless Service
   
 ##TODO
 
 test cases
 
-  + test config change while HUP
   + race condition test
   + stress test
 
