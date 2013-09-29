@@ -74,6 +74,7 @@ test cases
 
   + race condition test
   + stress test
+  + more context config validations
 
 ##How to contribute
 
