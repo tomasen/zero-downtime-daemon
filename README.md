@@ -1,4 +1,4 @@
-#`gozd`, a configurable zero downtime daemon(TCP/HTTP/FCGI) framework write in golang. 
+#Configurable zero downtime daemon(TCP/HTTP/FCGI) framework write in golang. 
 
 All it takes is integrating just one simple call to gozd.Daemonize(). Then you will get:
 
@@ -71,6 +71,30 @@ Basic integration steps are:
       // do some clean up and exit
     }
    
+
+##Functions
+
+###func Daemonize
+    func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error)
+    
+###type Context
+    type Context struct {
+        Hash       string
+        User       string
+        Group      string
+        Maxfds     syscall.Rlimit
+        Command    string
+        Logfile    string
+        Pidfile    string
+        Directives map[string]Server
+    }
+
+###type Server
+    type Server struct {
+        Network, Address string      // eg: unix/tcp, socket/ip:port. see net.Dial
+        Chmod            os.FileMode // file mode for unix socket, default 0666
+    }
+
 ##Typical usage
 
 Gateway, Load Balancer, Stateless Service
@@ -82,6 +106,7 @@ test cases
   + race condition test
   + stress test
   + more context config validations
+  + better default place to store and lock pid
 
 ##How to contribute
 
