@@ -63,6 +63,13 @@ Basic integration steps are:
         ...
       },
     }
+    cl := make(chan net.Listener,1)
+    go handleListners(cl)
+    done, err := gozd.Daemonize(ctx, cl) 
+    // ...
+    if <- done {
+      // do some clean up and exit
+    }
    
 ##Typical usage
 
