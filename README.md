@@ -6,7 +6,7 @@ All it takes is integrating just one simple call to gozd.Daemonize(). Then you w
 2. listen to multiple port and/or socket in the same program. also able to add/remove/update them with zero downtime.
 3. gracefully shutdown service without breaking any existing connections.
 
-####Status: In Development
+####Status: Testing, Acceptance
 
 * * *
 
