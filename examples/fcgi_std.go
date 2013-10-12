@@ -8,6 +8,7 @@ import (
   "net"
   "log"
   "os"
+  "syscall"
   "net/http/fcgi"
   gozd "bitbucket.org/PinIdea/zero-downtime-daemon"
 )
@@ -48,7 +49,7 @@ func main() {
   
   cl := make(chan net.Listener,1)
   go handleListners(cl)
-  done, err := gozd.Daemonize(ctx, cl) // returns channel that connects with daemon
+  sig, err := gozd.Daemonize(ctx, cl) // returns channel that connects with daemon
   if err != nil {
     log.Println("error: ", err)
     return
@@ -56,9 +57,15 @@ func main() {
   
   // other initializations or config setting
   
-  if <- done {
-    // do some clean up and exit
+  for s := range sig  {
+    switch s {
+    case syscall.SIGHUP, syscall.SIGUSR2:
+      // do some custom jobs while reload/hotupdate
+      
     
+    case syscall.SIGTERM:
+      // do some clean up and exit
+    }
   }
 }
 

@@ -55,7 +55,7 @@ import (
 )
 
 var (
-  cx_       chan bool = make(chan bool,1)
+  cx_       chan os.Signal = make(chan os.Signal,1)
   wg_       sync.WaitGroup
   hash_     string
   confs_    map[string]Server = make(map[string]Server)
@@ -198,7 +198,7 @@ func shutdown() {
   
   wg_.Wait()
 
-  cx_ <- true
+  cx_ <- syscall.SIGTERM
 }
 
 func signalHandler() {
@@ -211,17 +211,22 @@ func signalHandler() {
     log.Println("signal received: ", s)
     switch (s) {
     case syscall.SIGHUP, syscall.SIGUSR2:
+      
+      go func(){ cx_ <- s }()
+      
       // restart / fork and exec
       err := reload()
       if err != nil {
         log.Println("reload err:", err)
       }
+      
       return
 
     case syscall.SIGTERM, syscall.SIGINT:
       abdicate()
       shutdown()
       return
+      
     }
   }
 }
@@ -351,7 +356,7 @@ func initListeners(s map[string]Server, cl chan net.Listener) error {
   return nil
 }
 
-func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error) {
+func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) {
 
   err = validCtx(ctx)
   if err != nil {
