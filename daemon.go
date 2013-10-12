@@ -459,11 +459,11 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) 
   // handle reopen or stop command
   proc, err := masterproc()
   switch (ctx.Command) {
-  case "stop","reopen","reload":
+  case "stop","reopen","reload","kill":
     if err != nil {
       return
     }
-    if (ctx.Command == "stop") {
+    if (ctx.Command == "stop" || ctx.Command == "kill") {
       proc.Signal(syscall.SIGTERM)
     } else {
       // find old process, send SIGHUP then exit self
@@ -476,7 +476,7 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) 
   
   // handle start(default) command
   if err == nil {
-    err = errors.New("daemon already started")
+    err = errors.New("daemon already started: " + strconv.Itoa(proc.Pid))
     return
   }
   

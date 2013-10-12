@@ -48,7 +48,7 @@ func handleListners(cl chan net.Listener) {
 }
 
 func main() {
-  
+  log.Println(os.TempDir())
   ctx  := gozd.Context{
     Hash:   "tcp_example",
     Command:"start",
@@ -90,6 +90,7 @@ func main() {
     
     case syscall.SIGTERM:
       // do some clean up and exit
+      return
     }
   }
 }

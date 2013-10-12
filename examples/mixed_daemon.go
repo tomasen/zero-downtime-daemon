@@ -142,6 +142,7 @@ func main() {
     log.Println("error: ", err)
     return
   }
+  
   // other initializations or config setting
   
   for s := range sig  {
@@ -152,6 +153,7 @@ func main() {
     
     case syscall.SIGTERM:
       // do some clean up and exit
+      return
     }
   }
 }

@@ -75,6 +75,7 @@ Basic integration steps are:
     
       case syscall.SIGTERM:
         // do some clean up and exit
+        return
       }
     }
    

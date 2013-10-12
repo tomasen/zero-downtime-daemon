@@ -106,6 +106,7 @@ func main() {
     
     case syscall.SIGTERM:
       // do some clean up and exit
+      return
     }
   }
 }
