@@ -143,23 +143,45 @@ func setuid(u string, g string) (err error) {
     return
   }
   
-  userent, err := user.Lookup(u);
-  if err != nil {
-    if userent, err = user.LookupId(u); err != nil {
-      log.Println("Unable to find user", u, err)
+  uid := -1
+  gid := -1
+  
+  for {
+    userent, err := user.Lookup(u);
+    if err != nil {
+      if userent, err = user.LookupId(u); err != nil {
+        log.Println("Unable to find user", u, err)
+        break
+      }
+    }
+  
+    uid, err = strconv.Atoi(userent.Uid)
+    if err != nil {
+      log.Println("Invalid uid:", userent.Uid)
+    }
+    gid, err = strconv.Atoi(userent.Gid)
+    if err != nil {
+      log.Println("Invalid gid:", userent.Gid)
+    }
+    break
+  }
+  
+  if uid < 0 {
+    uid, err = strconv.Atoi(u)
+    if err != nil {
+      log.Println("Invalid uid:", u, err)
       return
     }
   }
   
-  uid, err := strconv.Atoi(userent.Uid)
-  if err != nil {
-    log.Println("Invalid uid:", userent.Uid)
+  if gid < 0 {
+    gid, err = strconv.Atoi(g)
+    if err != nil {
+      log.Println("Invalid gid:", g, err)
+      return
+    }
   }
-  gid, err := strconv.Atoi(userent.Gid)
-  if err != nil {
-    log.Println("Invalid gid:", userent.Gid)
-  }
-    
+  
   if err = syscall.Setgid(gid); err != nil {
     log.Println("setgid failed: ", err)
   }
