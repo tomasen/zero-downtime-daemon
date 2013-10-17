@@ -60,6 +60,7 @@ var (
   hash_     string
   confs_    map[string]Server = make(map[string]Server)
   pidfile_  string
+  logfile_  *os.File
 )
 
 // https://codereview.appspot.com/7392048/#ps1002
@@ -286,7 +287,13 @@ func reload() (err error) {
     
   // write all the fds into a json string
   // from beego, code is evil but much simpler than extend net/*
-  allFiles := []*os.File{os.Stdin, os.Stdout, os.Stderr}
+  allFiles := []*os.File{}
+  
+  if logfile_ != nil {
+    allFiles = append(allFiles, logfile_, logfile_, logfile_)
+  } else {
+    allFiles = append(allFiles, os.Stdin, os.Stdout, os.Stderr)
+  }
   
   for k,conf := range confs_ {
     v  := reflect.ValueOf(conf.l.Listener).Elem().FieldByName("fd").Elem()
@@ -369,12 +376,11 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) 
   
   // redirect log output, if set
   if len(ctx.Logfile) > 0 {
-    f, e := os.OpenFile(ctx.Logfile, os.O_WRONLY | os.O_APPEND | os.O_CREATE, os.ModeAppend | 0666)
-    if e != nil {
-      err = e
+    logfile_, err = os.OpenFile(ctx.Logfile, os.O_WRONLY | os.O_APPEND | os.O_CREATE, os.ModeAppend | 0666)
+    if err != nil {
       return
     }
-    log.SetOutput(f)
+    log.SetOutput(logfile_)
   }
 
   setrlimit(ctx.Maxfds)
