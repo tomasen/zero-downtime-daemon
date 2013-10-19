@@ -404,6 +404,8 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) 
   hash_   = ctx.Hash
   pidfile_ = ctx.Pidfile
   
+  setuid(ctx.User, ctx.Group)
+  
   // redirect log output, if set
   if len(ctx.Logfile) > 0 {
     logfile_, err = os.OpenFile(ctx.Logfile, os.O_WRONLY | os.O_APPEND | os.O_CREATE, os.ModeAppend | 0666)
