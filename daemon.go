@@ -228,12 +228,12 @@ func signalHandler() {
   // this is singleton by process
   // should not be called more than once!
   c := make(chan os.Signal, 1)
-  signal.Notify(c, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGUSR2, syscall.SIGINT)
+  signal.Notify(c, syscall.SIGTERM, syscall.SIGHUP)
   // Block until a signal is received.
   for s := range c {
     log.Println("signal received: ", s)
     switch (s) {
-    case syscall.SIGHUP, syscall.SIGUSR2:
+    case syscall.SIGHUP:
       
       go func(){ cx_ <- s }()
       
@@ -245,7 +245,7 @@ func signalHandler() {
       
       return
 
-    case syscall.SIGTERM, syscall.SIGINT:
+    case syscall.SIGTERM:
       abdicate()
       shutdown()
       return
