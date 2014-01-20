@@ -450,13 +450,22 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) 
       }
 
       f := os.NewFile(heir.Fd, k) 
-      if (f == nil) {
+      if f == nil {
         log.Println("unusable inherited fd", heir.Fd, "for", k)
+        continue
       }
       l, e := net.FileListener(f)
       if e != nil {
         err = e
-        go f.Close()
+        go func() {
+          defer func() {
+            if e1 := recover(); e1 != nil {
+              log.Println(e1)
+            }
+          }()
+          f.Close()
+        }()
+
         log.Println("inherited listener binding failed", heir.Fd, "for", k, e)
         continue 
       }
