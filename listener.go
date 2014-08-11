@@ -16,7 +16,7 @@ type conn struct {
   isclose int32
 }
 
-func (c conn) Close() error {
+func (c *conn) Close() error {
   if atomic.CompareAndSwapInt32(&c.isclose, 0, 1) {
     wg_.Done()
     return c.Conn.Close()
@@ -47,7 +47,7 @@ func (sl *stoppableListener) Accept() (c net.Conn, err error) {
   wg_.Add(1)
   // Wrap the returned connection, so that we can observe when
   // it is closed.
-  c = conn{Conn: c, isclose: 0}
+  c = &conn{Conn: c, isclose: 0}
   return
 }
 
