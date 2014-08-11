@@ -17,11 +17,11 @@ type conn struct {
 }
 
 func (c conn) Close() error {
-  err := c.Conn.Close()
-  if atomic.CompareAndSwapInt32(&c.isclose, 0, 1) && err == nil {
+  if atomic.CompareAndSwapInt32(&c.isclose, 0, 1) {
     wg_.Done()
+    return c.Conn.Close()
   }
-  return err
+  return nil
 }
 
 type stoppableListener struct {
