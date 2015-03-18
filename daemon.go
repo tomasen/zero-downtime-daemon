@@ -21,47 +21,49 @@
 * ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-*/
+ */
 
 /* The idea is came from nginx and this post: http://blog.nella.org/?p=879
 * and code here: http://code.google.com/p/jra-go/source/browse/#hg%2Fcmd%2Fupgradable
 * explain here: http://stackoverflow.com/questions/5345365/how-can-nginx-be-upgraded-without-dropping-any-requests
-*/
+ */
 
 package gozd
 
 import (
-  "os"
-  "io"
-  "fmt"
-  "net"
-  "log"
-  "sync"
-  "errors"
-  "unsafe"
-  "strconv"
-  "reflect"
-  "syscall"
-  "runtime"
-  "io/ioutil"
-  "os/user"
-  "os/signal"
+  osext "bitbucket.org/PinIdea/osext"
   "crypto/sha1"
   "encoding/json"
+  "errors"
+  "fmt"
+  "io"
+  "io/ioutil"
+  "log"
+  "net"
+  "os"
+  "os/exec"
+  "os/signal"
+  "os/user"
   "path"
   "path/filepath"
-  "os/exec"
-  osext  "bitbucket.org/PinIdea/osext"
+  "reflect"
+  "runtime"
+  "strconv"
+  "sync"
+  "syscall"
+  "time"
+  "unsafe"
 )
 
 var (
-  cx_       chan os.Signal = make(chan os.Signal,1)
-  wg_       sync.WaitGroup
-  hash_     string
-  confs_    map[string]Server = make(map[string]Server)
-  pidfile_  string
-  logfile_  *os.File
-  execpath_ string
+  cx_           chan os.Signal = make(chan os.Signal, 1)
+  wg_           sync.WaitGroup
+  hash_         string
+  confs_        map[string]Server = make(map[string]Server)
+  pidfile_      string
+  logfile_      *os.File
+  execpath_     string
+  exit_timeout_ time.Duration
 )
 
 // https://codereview.appspot.com/7392048/#ps1002
@@ -96,24 +98,24 @@ func masterproc() (p *os.Process, err error) {
   if err != nil {
     return
   }
-  
+
   p, err = findProcess(pid)
-  return 
+  return
 }
 
 func writepid() (err error) {
-  
+
   var p = os.Getpid()
-  
+
   b, err := json.Marshal(p)
   if err != nil {
     return
   }
-  
+
   if len(pidfile_) > 0 {
     _ = ioutil.WriteFile(pidfile_, b, 0666)
   }
-  
+
   err = ioutil.WriteFile(infopath(), b, 0666)
   return
 }
@@ -125,10 +127,10 @@ func setrlimit(rl syscall.Rlimit) (err error) {
       log.Println("failed to get NOFILE rlimit: ", err)
       return
     }
-    
+
     lim.Cur = rl.Cur
     lim.Max = rl.Max
-    
+
     if err = syscall.Setrlimit(syscall.RLIMIT_NOFILE, &lim); err != nil {
       log.Println("failed to set NOFILE rlimit: ", err)
       return
@@ -138,23 +140,23 @@ func setrlimit(rl syscall.Rlimit) (err error) {
 }
 
 func setuid(u string, g string) (err error) {
-  
-  if (len(u) <= 0) {
+
+  if len(u) <= 0 {
     return
   }
-  
+
   uid := -1
   gid := -1
-  
+
   for {
-    userent, err := user.Lookup(u);
+    userent, err := user.Lookup(u)
     if err != nil {
       if userent, err = user.LookupId(u); err != nil {
         log.Println("Unable to find user", u, err)
         break
       }
     }
-  
+
     uid, err = strconv.Atoi(userent.Uid)
     if err != nil {
       log.Println("Invalid uid:", userent.Uid)
@@ -165,7 +167,7 @@ func setuid(u string, g string) (err error) {
     }
     break
   }
-  
+
   if uid < 0 {
     uid, err = strconv.Atoi(u)
     if err != nil {
@@ -173,7 +175,7 @@ func setuid(u string, g string) (err error) {
       return
     }
   }
-  
+
   if gid < 0 {
     gid, err = strconv.Atoi(g)
     if err != nil {
@@ -181,7 +183,7 @@ func setuid(u string, g string) (err error) {
       return
     }
   }
-  
+
   if err = syscall.Setgid(gid); err != nil {
     log.Println("setgid failed: ", err)
   }
@@ -212,15 +214,24 @@ func shutdown() {
 
   log.Println("shutting down (pid):", os.Getpid())
   // shutdown process safely
-  for _,conf := range confs_ {
+  for _, conf := range confs_ {
     conf.l.Stop()
   }
-  
-  _, basename := filepath.Split(execpath_)
-  setProcessName("(shutting down)"+basename)
-  
-  wg_.Wait()
 
+  _, basename := filepath.Split(execpath_)
+  setProcessName("(shutting down)" + basename)
+
+  exit := make(chan bool, 1)
+  go func() {
+    wg_.Wait()
+    exit <- true
+  }()
+
+  select {
+  case <-exit:
+  case <-time.After(15 * time.Minute):
+    // time out
+  }
   cx_ <- syscall.SIGTERM
 }
 
@@ -232,57 +243,57 @@ func signalHandler() {
   // Block until a signal is received.
   for s := range c {
     log.Println("signal received: ", s)
-    switch (s) {
+    switch s {
     case syscall.SIGHUP:
-      
-      go func(){ cx_ <- s }()
-      
+
+      go func() { cx_ <- s }()
+
       // restart / fork and exec
       err := reload()
       if err != nil {
         log.Println("reload err:", err)
       }
-      
+
       return
 
     case syscall.SIGTERM:
       abdicate()
       shutdown()
       return
-      
+
     }
   }
 }
 
-
 type Server struct {
-  Network, Address    string   // eg: unix/tcp, socket/ip:port. see net.Dial
-  Chmod               os.FileMode // file mode for unix socket, default 0666
+  Network, Address string      // eg: unix/tcp, socket/ip:port. see net.Dial
+  Chmod            os.FileMode // file mode for unix socket, default 0666
   //key, cert         string // TODO: for https?
-  l *stoppableListener
+  l  *stoppableListener
   Fd uintptr
 }
 
 type Context struct {
-  Hash     string // suggest using config path
-  User     string
-  Group    string
-  Maxfds   syscall.Rlimit
-  Command  string
-  Logfile  string
-  Pidfile  string
-  Directives map[string]Server
+  Hash        string // suggest using config path
+  User        string
+  Group       string
+  Maxfds      syscall.Rlimit
+  Command     string
+  Logfile     string
+  Pidfile     string
+  Directives  map[string]Server
+  ExitTimeout int64
 }
 
 func validCtx(ctx Context) error {
-  if (len(ctx.Hash) <= 1) {
+  if len(ctx.Hash) <= 1 {
     return errors.New("ctx.Hash is too short")
   }
- 
-  if (len(ctx.Directives) <= 0) {
+
+  if len(ctx.Directives) <= 0 {
     return errors.New("ctx.Servers is empty")
   }
-  
+
   return nil
 }
 
@@ -295,48 +306,48 @@ func reload() (err error) {
   if _, err = os.Stat(execpath_); err != nil {
     exec, e := osext.Executable()
     if e != nil {
-      return e  
+      return e
     }
     if _, err = os.Stat(exec); err != nil {
       return
     }
     execpath_ = exec
   }
-  
+
   wd, err := os.Getwd()
   if nil != err {
     return
   }
 
   abdicate()
-    
+
   // write all the fds into a json string
   // from beego, code is evil but much simpler than extend net/*
   allFiles := []*os.File{}
-  
+
   if logfile_ != nil {
     allFiles = append(allFiles, logfile_, logfile_, logfile_)
   } else {
     allFiles = append(allFiles, os.Stdin, os.Stdout, os.Stderr)
   }
-  
-  for k,conf := range confs_ {
-    v  := reflect.ValueOf(conf.l.Listener).Elem().FieldByName("fd").Elem()
+
+  for k, conf := range confs_ {
+    v := reflect.ValueOf(conf.l.Listener).Elem().FieldByName("fd").Elem()
     fd := uintptr(v.FieldByName("sysfd").Int())
-    f  := os.NewFile(fd, string(v.FieldByName("sysfile").String()))
+    f := os.NewFile(fd, string(v.FieldByName("sysfile").String()))
     allFiles = append(allFiles, f)
-   
+
     // presume the dupped fd by os.StartProcess is the same of the order of s.ProcAttr:Files
     conf.Fd = uintptr(len(allFiles)) - 1
     confs_[k] = conf
   }
-  
+
   b, err := json.Marshal(confs_)
   if err != nil {
     return
   }
   inheritedinfo := string(b)
-  
+
   os.Setenv("GOZDVAR", inheritedinfo)
   p, err := os.StartProcess(execpath_, os.Args, &os.ProcAttr{
     Dir:   wd,
@@ -344,19 +355,19 @@ func reload() (err error) {
     Files: allFiles,
   })
   if nil != err {
-    return 
+    return
   }
   log.Printf("child %d spawned, parent: %d\n", p.Pid, os.Getpid())
-  
-  // exit since process already been forked and exec 
+
+  // exit since process already been forked and exec
   shutdown()
-  
+
   return
 }
 
 func initListeners(s map[string]Server, cl chan net.Listener) error {
-  // start listening 
-  for k,c := range s {
+  // start listening
+  for k, c := range s {
     if c.Network == "unix" {
       os.Remove(c.Address)
     }
@@ -372,7 +383,7 @@ func initListeners(s map[string]Server, cl chan net.Listener) error {
       }
       os.Chmod(c.Address, c.Chmod)
     }
-    
+
     conf := s[k]
     sl := newStoppable(listener, k)
     conf.l = sl
@@ -381,10 +392,10 @@ func initListeners(s map[string]Server, cl chan net.Listener) error {
       cl <- sl
     }
   }
-  if len(confs_) <= 0{
+  if len(confs_) <= 0 {
     return errors.New("interfaces binding failed completely")
   }
-  
+
   return nil
 }
 
@@ -394,21 +405,26 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) 
   if err != nil {
     return
   }
-  
+
   execpath_, err = exec.LookPath(os.Args[0])
   if err != nil {
     return
   }
 
-  c       = cx_
-  hash_   = ctx.Hash
+  c = cx_
+  hash_ = ctx.Hash
   pidfile_ = ctx.Pidfile
-  
+  if ctx.ExitTimeout != 0 {
+    exit_timeout_ = time.Duration(ctx.ExitTimeout)
+  } else {
+    exit_timeout_ = time.Minute * 15
+  }
+
   setuid(ctx.User, ctx.Group)
-  
+
   // redirect log output, if set
   if len(ctx.Logfile) > 0 {
-    logfile_, err = os.OpenFile(ctx.Logfile, os.O_WRONLY | os.O_APPEND | os.O_CREATE, os.ModeAppend | 0666)
+    logfile_, err = os.OpenFile(ctx.Logfile, os.O_WRONLY|os.O_APPEND|os.O_CREATE, os.ModeAppend|0666)
     if err != nil {
       return
     }
@@ -416,10 +432,10 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) 
   }
 
   setrlimit(ctx.Maxfds)
-  
+
   setuid(ctx.User, ctx.Group)
 
-  inherited := os.Getenv("GOZDVAR");
+  inherited := os.Getenv("GOZDVAR")
   if len(inherited) > 0 {
     // this is the daemon
     // create a new SID for the child process
@@ -428,28 +444,28 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) 
       err = e
       return
     }
-    
+
     if s_ret < 0 {
       err = fmt.Errorf("Set sid failed %d", s_ret)
       return
     }
-    
+
     // handle inherited fds
     heirs := make(map[string]Server)
     err = json.Unmarshal([]byte(inherited), &heirs)
     if err != nil {
-      return 
+      return
     }
 
-    for k,heir := range heirs {
+    for k, heir := range heirs {
       // compare heirs and ctx confs
-      conf, ok := ctx.Directives[k];
+      conf, ok := ctx.Directives[k]
       if !ok || !equavalent(conf, heir) {
         // do not add the listener that already been removed
         continue
       }
 
-      f := os.NewFile(heir.Fd, k) 
+      f := os.NewFile(heir.Fd, k)
       if f == nil {
         log.Println("unusable inherited fd", heir.Fd, "for", k)
         continue
@@ -467,7 +483,7 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) 
         }()
 
         log.Println("inherited listener binding failed", heir.Fd, "for", k, e)
-        continue 
+        continue
       }
 
       heir.l = newStoppable(l, k)
@@ -477,21 +493,21 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) 
       }
       delete(ctx.Directives, k)
     }
-    
-    if (len(confs_) <= 0 && err != nil) {
+
+    if len(confs_) <= 0 && err != nil {
       return
     }
-    
+
     // add new listeners
     err = initListeners(ctx.Directives, cl)
     if err != nil {
       return
     }
-    
+
     // write process info
     err = writepid()
     if err != nil {
-      return 
+      return
     }
 
     // Handle OS signals
@@ -499,18 +515,18 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) 
     // We must use a buffered channel or risk missing the signal
     // if we're not ready to receive when the signal is sent.
     go signalHandler()
-        
+
     return
   }
-  
+
   // handle reopen or stop command
   proc, err := masterproc()
-  switch (ctx.Command) {
-  case "stop","reopen","reload","kill":
+  switch ctx.Command {
+  case "stop", "reopen", "reload", "kill":
     if err != nil {
       return
     }
-    if (ctx.Command == "stop" || ctx.Command == "kill") {
+    if ctx.Command == "stop" || ctx.Command == "kill" {
       proc.Signal(syscall.SIGTERM)
     } else {
       // find old process, send SIGHUP then exit self
@@ -520,26 +536,22 @@ func Daemonize(ctx Context, cl chan net.Listener) (c chan os.Signal, err error) 
     err = errors.New("signaling master daemon")
     return
   }
-  
+
   // handle start(default) command
   if err == nil {
     err = errors.New("daemon already started: " + strconv.Itoa(proc.Pid))
     return
   }
-  
+
   err = initListeners(ctx.Directives, cl)
   if err != nil {
     return
   }
-  
+
   err = reload()
   if err != nil {
     return
   }
-  
-  
-    
-  return 
+
+  return
 }
-
-
