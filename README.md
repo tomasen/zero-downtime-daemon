@@ -1,4 +1,7 @@
-#Configurable zero downtime daemon(TCP/HTTP/FCGI) framework write in golang. 
+### Configurable zero downtime daemon(TCP/HTTP/FCGI) framework write in golang. 
+
+[![Build Status](https://travis-ci.org/tomasen/zero-downtime-daemon.svg?branch=master)](https://travis-ci.org/tomasen/zero-downtime-daemon)
+[![GoDoc](https://godoc.org/github.com/tomasen/zero-downtime-daemon?status.svg)](http://godoc.org/github.com/tomasen/zero-downtime-daemon)
 
 All it takes is integrating just one simple call to gozd.Daemonize(). Then you will get:
 
@@ -6,15 +9,15 @@ All it takes is integrating just one simple call to gozd.Daemonize(). Then you w
 2. listen to multiple port and/or socket in the same program. also able to add/remove/update them with zero downtime.
 3. gracefully shutdown service without breaking any existing connections.
 
-####Status: Acceptance testing
-
 * * *
 
-##How to install
+#### How to install
 
-    go get -u bitbucket.org/PinIdea/zero-downtime-daemon
+```bash
+go get -u bitbucket.org/PinIdea/zero-downtime-daemon
+```
 
-##Sample Code & Integration
+#### Sample Code & Integration
 
 There are sample programs in the "examples" directory.
 
@@ -39,14 +42,15 @@ Basic integration steps are:
 2. Call `gozd.Daemonize(Context, chan net.Listener)` to initialize `gozd` & obtain a channel to receive exit signal from `gozd`.
 3. Wait till daemon send a exit signal, do some cleanup if you want.
 
-##Daemon Usage
+#### Daemon Usage
 
-> kill -TERM <pid>  send signal to gracefully shutdown daemon without breaking existing connections and services.
+> `kill -TERM <pid>`  send signal to gracefully shutdown daemon without breaking existing connections and services.
 
-> kill -HUP <pid>  send signal to start daemon's latest binary, without breaking existing connections and services, and also absolutely zero downtime. old process will be gracefully shut down.
+> `kill -HUP <pid>` send signal to start daemon's latest binary, without breaking existing connections and services, and also absolutely zero downtime. old process will be gracefully shut down.
 
-##Daemon Configuration
+#### Daemon Configuration
 
+```go
     ctx  := gozd.Context{
       Hash:[DAEMON_NAME],
       Command:[start,stop,reload],
@@ -78,36 +82,13 @@ Basic integration steps are:
         return
       }
     }
-   
+```
 
-##Functions
-
-###func Daemonize
-    func Daemonize(ctx Context, cl chan net.Listener) (c chan bool, err error)
-    
-###type Context
-    type Context struct {
-        Hash       string
-        User       string
-        Group      string
-        Maxfds     syscall.Rlimit
-        Command    string
-        Logfile    string
-        Pidfile    string
-        Directives map[string]Server
-    }
-
-###type Server
-    type Server struct {
-        Network, Address string      // eg: unix/tcp, socket/ip:port. see net.Dial
-        Chmod            os.FileMode // file mode for unix socket, default 0666
-    }
-
-##Typical usage
+### Typical usage
 
 Gateway, Load Balancer, Stateless Service
   
-##TODO
+### TODO
 
 test cases
 
@@ -116,13 +97,13 @@ test cases
   + more context config validations
   + better default place to store and lock pid
 
-##How to contribute
+### How to contribute
 
 Help is needed to write more test cases and stress test.
 
 Patches or suggestions that can make the code simpler or easier to use are welcome to submit to [issue area](https://bitbucket.org/PinIdea/go-zero-downtime-daemon/issues?status=new&status=open).
 
-##How it works
+### How it works
 
 The basic principle: master process fork the process, and child process evecve corresponding binary which inherit the file descriptions of the listening port and/or socket. 
 
@@ -132,7 +113,7 @@ We also expand the net.Listener and net.Conn, so that the master process will st
 
 The detail in in the code of reload() in daemon.go. 
 
-##Special Thanks
+### Special Thanks
 
 The zero downtime idea and code is inspired by nginx and beego. Thanks.
 
