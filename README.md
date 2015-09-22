@@ -14,7 +14,7 @@ All it takes is integrating just one simple call to gozd.Daemonize(). Then you w
 #### How to install
 
 ```bash
-go get -u bitbucket.org/PinIdea/zero-downtime-daemon
+go get -u github.com/tomasen/zero-downtime-daemon
 ```
 
 #### Sample Code & Integration
@@ -101,7 +101,7 @@ test cases
 
 Help is needed to write more test cases and stress test.
 
-Patches or suggestions that can make the code simpler or easier to use are welcome to submit to [issue area](https://bitbucket.org/PinIdea/go-zero-downtime-daemon/issues?status=new&status=open).
+Patches or suggestions that can make the code simpler or easier to use are welcome to submit issue.
 
 ### How it works
 
